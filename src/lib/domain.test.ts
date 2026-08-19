@@ -12,6 +12,7 @@ import {
   verifiedLinkedInCompanyUrl,
   extractEmployeeLimit,
   extractEmployeeUpperBound,
+  isForbiddenSectorCompany,
   isValidVerticalClassification,
   verticalNames,
 } from "@/lib/domain";
@@ -107,3 +108,55 @@ describe("Lusha", () =>
       remaining: 40,
       alert: 85,
     })));
+
+describe("Validação de Core Business e Exclusão de Setores", () => {
+  it("rejeita explicitamente empresas do setor financeiro, adquirentes e bancos", () => {
+    const stone = isForbiddenSectorCompany({
+      name: "Stone Pagamentos S.A.",
+      coreBusiness: "Adquirência, maquininhas de cartão e soluções de pagamento para lojistas",
+    });
+    expect(stone.forbidden).toBe(true);
+
+    const nubank = isForbiddenSectorCompany({
+      name: "Nubank",
+      coreBusiness: "Serviços de banco digital e cartão de crédito",
+    });
+    expect(nubank.forbidden).toBe(true);
+
+    const picpay = isForbiddenSectorCompany({
+      name: "PicPay",
+      coreBusiness: "Carteira digital, pagamentos PIX e marketplace financeiro",
+    });
+    expect(picpay.forbidden).toBe(true);
+  });
+
+  it("rejeita indústrias pesadas, hospitais e operadoras de telefonia", () => {
+    const hospital = isForbiddenSectorCompany({
+      name: "Laboratório Fleury",
+      coreBusiness: "Medicina diagnóstica e análises clínicas",
+    });
+    expect(hospital.forbidden).toBe(true);
+
+    const gerdau = isForbiddenSectorCompany({
+      name: "Gerdau S.A.",
+      coreBusiness: "Produção de aço e siderurgia",
+    });
+    expect(gerdau.forbidden).toBe(true);
+  });
+
+  it("aprova empresas legítimas das 9 verticais", () => {
+    const retail = isForbiddenSectorCompany({
+      name: "Magalu Digital",
+      tradeName: "Magalu",
+      coreBusiness: "Comércio varejista omnichannel e venda de bens de consumo pela internet",
+    });
+    expect(retail.forbidden).toBe(false);
+
+    const itConsulting = isForbiddenSectorCompany({
+      name: "CI&T Software",
+      coreBusiness: "Desenvolvimento e consultoria especializada em engenharia de software e transformação digital",
+    });
+    expect(itConsulting.forbidden).toBe(false);
+  });
+});
+

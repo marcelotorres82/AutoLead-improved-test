@@ -1,6 +1,7 @@
 import "server-only";
 
 import { env } from "@/lib/env";
+import { AnthropicSearchProvider } from "@/lib/providers/anthropic-search";
 import { PerplexitySearchProvider } from "@/lib/providers/perplexity";
 import { PublicWebSearchProvider } from "@/lib/providers/public-search";
 import { TavilySearchProvider } from "@/lib/providers/tavily";
@@ -11,11 +12,20 @@ export class MultiSearchProvider implements WebSearchProvider {
   private providers: WebSearchProvider[] = [];
 
   constructor() {
-    // Provedores prioritários
+    // 1. Provedor Anthropic Claude (se chave presente)
+    if (env.ANTHROPIC_API_KEY) {
+      this.providers.push(new AnthropicSearchProvider());
+    }
+
+    // 2. Provedor Perplexity (busca direta com sonar ou fallback inteligente)
+    this.providers.push(new PerplexitySearchProvider());
+
+    // 3. Provedor Tavily (se configurado)
     if (env.TAVILY_API_KEY) {
       this.providers.push(new TavilySearchProvider());
     }
-    this.providers.push(new PerplexitySearchProvider());
+
+    // 4. Provedor Público Web (DuckDuckGo/web scraping resiliente e gratuito)
     this.providers.push(new PublicWebSearchProvider());
   }
 
@@ -40,7 +50,6 @@ export class MultiSearchProvider implements WebSearchProvider {
     }
 
     if (results.length === 0) {
-      // Fallback garantido
       const fallback = new PublicWebSearchProvider();
       return fallback.search(query, limit);
     }

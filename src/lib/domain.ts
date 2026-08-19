@@ -305,3 +305,92 @@ export function lushaMetrics(used: number, limit: number) {
     alert: percent >= 95 ? 95 : percent >= 85 ? 85 : percent >= 70 ? 70 : null,
   };
 }
+
+export const forbiddenBrandNames = new Set([
+  "stone", "stone pagamentos", "pagseguro", "pagbank", "cielo", "getnet", "rede",
+  "asaas", "infinitepay", "ebanx", "nubank", "picpay", "c6 bank", "c6", "banco inter",
+  "inter & co", "inter co", "banco do brasil", "bradesco", "itau", "itau unibanco",
+  "itaú", "santander", "btg", "btg pactual", "banco pan", "safra", "banco safra",
+  "original", "banco original", "neon", "neon pagamentos", "mercado pago", "zoop",
+  "stelo", "vindi", "iugu", "recargapay", "dock", "fitbank", "porto seguro",
+  "sulamerica", "sulamérica", "tokio marine", "bradesco seguros", "xp", "xp investimentos",
+  "rico", "clear corretora", "guide investimentos", "fleury", "laboratorio fleury",
+  "laboratório fleury", "dasa", "rede d'or", "rede dor", "mater dei", "hapvida",
+  "notredame intermedica", "notredame intermédica", "einstein", "sírio-libanês",
+  "sirio libanes", "pague menos", "raiadrogasil", "droga raia", "drogasil",
+  "eurofarma", "ems", "gerdau", "csn", "usiminas", "vale", "petrobras", "raizen",
+  "raízen", "cosan", "jbs", "marfrig", "brf", "slc agricola", "slc agrícola",
+  "mrv", "cyrela", "tupy", "weg", "claro", "vivo", "tim", "oi", "embratel",
+  "algar telecom", "desktop internet", "brisanet", "unifique",
+]);
+
+export const forbiddenCoreBusinessRegexes: Array<{ category: string; regex: RegExp }> = [
+  {
+    category: "Setor Financeiro / Meios de Pagamento / Fintechs",
+    regex:
+      /(?:adquirent|adquir[eê]ncia|maquininha|gateway de pagamento|processamento de pagamento|meios de pagamento|solu[cç][oõ]es de pagamento|servi[cç]os financeiro|opera[cç][oõ]es financeir|institui[cç][aã]o financeir|cart[aã]o de cr[eé]dito|cart[aã]o de d[eé]bito|\bbanco\b|\bbancos\b|\bbanking\b|\bfintech\b|\bfintechs\b|empr[eé]stimo|cr[eé]dito direto|cr[eé]dito pessoal|financiamento|factoring|antecipa[cç][aã]o de receb[ií]ve|seguradora|\bseguros\b|previd[eê]ncia privada|investimento|corretora de valores|asset management|fundo de investimento|carteira digital|\bwallet\b|criptomoeda|\bcrypto\b)/i,
+  },
+  {
+    category: "Saúde / Hospitalar / Laboratórios Clínicos",
+    regex:
+      /(?:laborat[oó]rio de an[aá]lises|medicina diagn[oó]stica|\bhospital\b|\bhospitais\b|hospitalar|cl[ií]nica m[eé]dica|plano de sa[uú]de|ind[uú]stria farmac[eê]utica|rede de drogarias)/i,
+  },
+  {
+    category: "Indústria Pesada / Siderurgia / Mineração / Agro / Construção",
+    regex:
+      /(?:siderurg|sider[uú]rg|minera[cç][aã]o de min[eé]rio|extra[cç][aã]o de petr[oó]leo|distribui[cç][aã]o de combust[ií]ve|usina de a[cç][uú]car e etanol|sucroalcooleir|frigor[ií]fico|abate de bovinos|constru[cç][aã]o civil|incorporadora imobili[aá]ria|fabrica[cç][aã]o de motores el[eé]tricos)/i,
+  },
+  {
+    category: "Telecomunicações / Operadoras de Telefonia / ISPs Residenciais",
+    regex:
+      /(?:operadora de telefonia m[oó]vel|servi[cç]o telef[oó]nico fixo|provedor de internet banda larga residencial)/i,
+  },
+];
+
+export function isForbiddenSectorCompany(company: {
+  name?: string;
+  tradeName?: string;
+  domain?: string;
+  coreBusiness?: string;
+  description?: string;
+  classificationReason?: string;
+}): { forbidden: boolean; reason?: string } {
+  const normName = normalizeName(company.name || "");
+  const normTrade = normalizeName(company.tradeName || "");
+
+  for (const brand of forbiddenBrandNames) {
+    if (
+      normName === brand ||
+      normName.startsWith(`${brand} `) ||
+      normTrade === brand ||
+      normTrade.startsWith(`${brand} `)
+    ) {
+      return {
+        forbidden: true,
+        reason: `Marca explicitamente identificada como setor fora de escopo (${brand}).`,
+      };
+    }
+  }
+
+  const textToAnalyze = [
+    company.name,
+    company.tradeName,
+    company.coreBusiness,
+    company.description,
+    company.classificationReason,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  for (const { category, regex } of forbiddenCoreBusinessRegexes) {
+    if (regex.test(textToAnalyze)) {
+      return {
+        forbidden: true,
+        reason: `Atividade identificada como ${category}, violando a regra de core business das 9 verticais.`,
+      };
+    }
+  }
+
+  return { forbidden: false };
+}
+

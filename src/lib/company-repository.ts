@@ -19,6 +19,7 @@ import {
   extractEmployeeLimit,
   extractEmployeeUpperBound,
   findDuplicate,
+  isForbiddenSectorCompany,
   isValidVerticalClassification,
   normalizeDomain,
   normalizeName,
@@ -241,6 +242,10 @@ export async function persistAnalyzedCompanies(
       !verticalMap.has(candidate.vertical)
     )
       continue;
+    const sectorCheck = isForbiddenSectorCompany(candidate);
+    if (sectorCheck.forbidden) {
+      continue;
+    }
     const domain = normalizeDomain(candidate.domain);
     const duplicate = findDuplicate({ name: candidate.name, domain }, known);
     if (duplicate.duplicate) {

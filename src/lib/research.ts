@@ -52,30 +52,31 @@ export function buildSearchQueries(
         : "";
 
     const baseVertical = `Brasil ${vertical}${subverticals ? ` (${subverticals})` : ""}`;
+    const negFilter = "-banco -fintech -pagamento -adquirente -maquininha";
 
     // Tier 1: Crescimento recente
     queries.push(
-      `${baseVertical} empresas "série A" OR "série B" OR "aporte" OR "funding" ${year}`,
+      `${baseVertical} empresas "série A" OR "série B" OR "aporte" OR "funding" ${year} ${negFilter}`,
     );
 
     // Tier 2: Infraestrutura digital
     queries.push(
-      `${baseVertical} empresas "transformação digital" OR "APIs" OR "cloud-native" OR "cloud computing" ${year}`,
+      `${baseVertical} empresas "transformação digital" OR "APIs" OR "cloud-native" OR "cloud computing" ${year} ${negFilter}`,
     );
 
     // Tier 3: Segurança focada
     queries.push(
-      `${baseVertical} "segurança da informação" OR "CISO" OR "AppSec" OR "DevSecOps" vagas ${year}`,
+      `${baseVertical} "segurança da informação" OR "CISO" OR "AppSec" OR "DevSecOps" vagas ${year} ${negFilter}`,
     );
 
     // Tier 4: Vagas técnicas
     queries.push(
-      `site:linkedin.com/jobs ${baseVertical} "DevOps" OR "SRE" OR "segurança" OR "engineer" ${year}`,
+      `site:linkedin.com/jobs ${baseVertical} "DevOps" OR "SRE" OR "segurança" OR "engineer" ${year} ${negFilter}`,
     );
 
     // Tier 5: Notícias e expansão
     queries.push(
-      `${baseVertical} "abriu filial" OR "inaugurou" OR "expansão" OR "novo escritório" notícias ${year}`,
+      `${baseVertical} "abriu filial" OR "inaugurou" OR "expansão" OR "novo escritório" notícias ${year} ${negFilter}`,
     );
   }
 
