@@ -53,45 +53,68 @@ export const aiLeadAnalysisSchema = z.object({
 });
 export type AnalyzedLead = z.infer<typeof analyzedLeadSchema>;
 
-const solutionTitles: Record<LeadResearchContext["solution"], string[]> = {
-  "API Security": [
-    "CISO",
-    "AppSec",
-    "DevSecOps",
-    "API Security",
-    "Plataformas Digitais",
-  ],
-  WAAP: [
-    "CISO",
-    "AppSec",
-    "Segurança da Informação",
-    "DevSecOps",
-    "Aplicações Digitais",
-  ],
-  Guardicore: [
-    "CISO",
-    "Infraestrutura",
-    "Redes",
-    "Security Architecture",
-    "Zero Trust",
-  ],
-};
-
 export function buildLeadSearchQueries(context: LeadResearchContext) {
   const company = JSON.stringify(context.companyName);
-  const titles = Array.from(
+  const domain = context.domain;
+
+  // Expandir títulos baseado na solução (Fase 1 melhoria)
+  const solutionSpecificTitles: Record<typeof context.solution, string[]> = {
+    "API Security": [
+      "CISO",
+      "AppSec Lead",
+      "DevSecOps",
+      "Security Architect",
+      "API Security",
+      "Plataformas Digitais",
+      "Chief Information Officer",
+    ],
+    WAAP: [
+      "CISO",
+      "AppSec Lead",
+      "Segurança da Informação",
+      "DevSecOps",
+      "WAF Engineer",
+      "Aplicações Digitais",
+      "Chief Information Officer",
+    ],
+    Guardicore: [
+      "CISO",
+      "Infraestrutura",
+      "Redes",
+      "Cloud Architect",
+      "Security Architecture",
+      "Zero Trust",
+      "Chief Information Officer",
+    ],
+  };
+
+  const allTitles = Array.from(
     new Set([
       ...context.titles.slice(0, 5),
-      ...solutionTitles[context.solution],
+      ...solutionSpecificTitles[context.solution],
     ]),
-  ).slice(0, 10);
-  const titleExpression = titles.map((title) => `"${title}"`).join(" OR ");
-  return [
+  ).slice(0, 12);
+
+  const titleExpression = allTitles.map((title) => `"${title}"`).join(" OR ");
+
+  const queries = [
+    // Query 1: Liderança geral
     `${company} (${titleExpression}) Brasil liderança`,
+
+    // Query 2: LinkedIn específico
     `site:linkedin.com/in ${company} (${titleExpression})`,
-    `site:${context.domain} (liderança OR diretoria OR equipe) (segurança OR tecnologia OR infraestrutura OR APIs)`,
+
+    // Query 3: Site interno
+    `site:${domain} (liderança OR diretoria OR equipe OR time) (segurança OR tecnologia OR infraestrutura OR APIs OR "chief")`,
+
+    // Query 4: Movimentações recentes
     `${company} (nomeado OR assume OR contratação OR promoção) (${titleExpression})`,
+
+    // Query 5: Notícias de liderança (Fase 1 melhoria)
+    `${company} Brasil (novo OR "recém" OR "recém-nomeado") (${titleExpression})`,
   ];
+
+  return queries;
 }
 
 export function verifiedLinkedInPersonUrl(

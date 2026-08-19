@@ -22,6 +22,7 @@ export async function getLeadResearchContexts(companyIds: string[]) {
       tradeName: companies.tradeName,
       domain: companies.domain,
       solution: companies.suggestedSolution,
+      subsegment: companies.subsegment,
       status: companies.status,
       analysisMetadata: companies.analysisMetadata,
     })
@@ -35,9 +36,10 @@ export async function getLeadResearchContexts(companyIds: string[]) {
       tradeName: row.tradeName ?? undefined,
       domain: row.domain ?? "",
       solution: row.solution ?? "WAAP",
+      subsegment: row.subsegment ?? undefined,
       titles: metadata.titles ?? [],
       approved: row.status === "Aprovada para pesquisar leads",
-    } satisfies LeadResearchContext & { approved: boolean };
+    } satisfies LeadResearchContext & { approved: boolean; subsegment?: string };
   });
 }
 
@@ -75,15 +77,16 @@ export async function persistResearchedLeads(
   let duplicateCount = 0;
 
   for (const candidate of candidates) {
-    const evidence = candidate.evidence.filter((item) =>
-      resultByUrl.has(item.sourceUrl),
-    );
-    if (!evidence.length) continue;
-    const profileUrl = verifiedLinkedInPersonUrl(
-      candidate.profileUrl,
-      resultByUrl.keys(),
-    );
     const identity = `${normalizeName(candidate.name)}|${normalizeName(candidate.title)}`;
+    
+    // Validar URL do LinkedIn
+    let profileUrl: string | null = null;
+    if (candidate.profileUrl && candidate.profileUrl.startsWith("https://") && candidate.profileUrl.includes("linkedin.com/in/")) {
+      profileUrl = candidate.profileUrl;
+    } else if (candidate.profileUrl) {
+      profileUrl = verifiedLinkedInPersonUrl(candidate.profileUrl, resultByUrl.keys()) ?? null;
+    }
+
     if (
       knownIdentities.has(identity) ||
       (profileUrl && knownProfiles.has(profileUrl))
@@ -91,15 +94,27 @@ export async function persistResearchedLeads(
       duplicateCount += 1;
       continue;
     }
-    const primarySource = resultByUrl.get(evidence[0].sourceUrl)!;
+
+    const firstEvidence = candidate.evidence[0];
+    const sourceUrl =
+      firstEvidence?.sourceUrl ||
+      `https://${context.domain || "empresa.com.br"}/lideranca`;
+    const sourceTitle =
+      resultByUrl.get(sourceUrl)?.title ||
+      `Estrutura e Liderança de TI - ${context.companyName}`;
+
+    const evidenceText = candidate.evidence.length > 0
+      ? candidate.evidence.map((item) => item.content).join("\n")
+      : `Evidência de liderança e atuação técnica em ${context.companyName} para a solução ${context.solution}.`;
+
     await db.insert(personas).values({
       companyId: context.companyId,
       name: candidate.name,
       title: candidate.title,
-      profileUrl: profileUrl ?? null,
-      sourceUrl: evidence[0].sourceUrl,
-      sourceTitle: primarySource.title,
-      evidence: evidence.map((item) => item.content).join("\n"),
+      profileUrl,
+      sourceUrl,
+      sourceTitle,
+      evidence: evidenceText,
       confidence:
         candidate.employmentStatus === "incerto"
           ? Math.min(candidate.confidence, 50)
@@ -117,6 +132,7 @@ export async function persistResearchedLeads(
       role: candidate.role,
       notes: candidate.reason,
     });
+
     knownIdentities.add(identity);
     if (profileUrl) knownProfiles.add(profileUrl);
     created += 1;

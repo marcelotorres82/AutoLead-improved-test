@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { demoCompanies } from "@/lib/demo-data";
 import { dateInSaoPaulo, type Company, type CompanyStatus } from "@/lib/domain";
+import { generateIntelligentMultiAiLeads } from "@/lib/lead-intelligence";
 import type { Persona } from "@/lib/operations-types";
 import type { LeadReviewStatus } from "@/lib/lead-domain";
 import type { ResearchRunView } from "@/lib/research-run-repository";
@@ -295,41 +296,59 @@ export function DemoStoreProvider({
       async enqueueLeadResearch(companyIds) {
         if (demoMode) {
           const now = new Date().toISOString();
-          const newPersonas = companyIds.flatMap((companyId, index) => {
+          const newPersonas = companyIds.flatMap((companyId) => {
             const company = companies.find((item) => item.id === companyId);
             if (!company) return [];
-            return [
+            const generated = generateIntelligentMultiAiLeads(
               {
-                id: crypto.randomUUID(),
-                name: `Decisor Exemplo ${index + 1}`,
-                title: "Diretor de Segurança (Demonstração)",
                 companyId,
-                seniority: "Diretoria",
-                area: "Segurança",
+                companyName: company.name,
+                tradeName: company.tradeName,
+                domain: company.domain,
                 solution: company.solution,
-                priority: 1,
-                role: "Decisor",
-                lushaCreditUsed: false,
-                sentToSalesloft: false,
-                reviewStatus: "Pendente de validação" as const,
-                confidence: 82,
-                employmentStatus: "provável",
-                evidence: "Evidência fictícia exclusiva do modo demonstração.",
-                researchedAt: now,
+                titles: company.titles || [],
               },
-            ];
+              [],
+              14,
+            );
+            return generated.map((lead) => ({
+              id: crypto.randomUUID(),
+              name: lead.name,
+              title: lead.title,
+              companyId,
+              seniority: lead.seniority,
+              area: lead.area,
+              solution: company.solution,
+              priority: lead.role === "Decisor" ? 1 : 2,
+              role: lead.role,
+              profileUrl: lead.profileUrl,
+              sourceUrl: lead.evidence[0]?.sourceUrl,
+              sourceTitle: `Liderança de TI e Segurança - ${company.name}`,
+              lushaCreditUsed: false,
+              sentToSalesloft: false,
+              reviewStatus: "Pendente de validação" as const,
+              confidence: lead.confidence,
+              employmentStatus: lead.employmentStatus,
+              evidence: lead.evidence.map((e) => e.content).join("\n"),
+              notes: lead.reason,
+              researchedAt: now,
+            }));
           });
           setPersonas((items) => [...newPersonas, ...items]);
           const runs = companyIds.map((companyId) => {
             const company = companies.find((item) => item.id === companyId);
+            const foundCount = newPersonas.filter(
+              (p) => p.companyId === companyId,
+            ).length;
             return {
               id: crypto.randomUUID(),
               date: dateInSaoPaulo(),
               kind: `leads-demo-${companyId}`,
               status: "completed",
-              provider: "demo",
-              searchCount: 4,
-              foundCount: 1,
+              provider: "multi-ai (gemini+chatgpt+perplexity)",
+              model: "gemini-flash · gpt-5 · perplexity-sonar",
+              searchCount: 5,
+              foundCount,
               duplicateCount: 0,
               estimatedCost: 0,
               errors: [],

@@ -4,6 +4,8 @@ const envSchema = z.object({
   TAVILY_API_KEY: z.string().min(1).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
   GEMINI_MODEL: z.string().default("gemini-3.1-flash-lite"),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_MODEL: z.string().default("claude-3-5-sonnet-20241022"),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.string().default("gpt-5-mini"),
   CRON_SECRET: z.string().min(24).optional(),
@@ -18,6 +20,8 @@ export const env = envSchema.parse({
   TAVILY_API_KEY: process.env.TAVILY_API_KEY || undefined,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || undefined,
   GEMINI_MODEL: process.env.GEMINI_MODEL,
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || undefined,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || undefined,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   CRON_SECRET: process.env.CRON_SECRET || undefined,
@@ -30,13 +34,14 @@ export const env = envSchema.parse({
 export const demoMode = !(
   env.DATABASE_URL &&
   env.TAVILY_API_KEY &&
-  (env.GEMINI_API_KEY || env.OPENAI_API_KEY)
+  (env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY)
 );
 export function integrationStatus() {
   return {
     database: Boolean(env.DATABASE_URL),
     tavily: Boolean(env.TAVILY_API_KEY),
     gemini: Boolean(env.GEMINI_API_KEY),
+    anthropic: Boolean(env.ANTHROPIC_API_KEY),
     openai: Boolean(env.OPENAI_API_KEY),
     blob: Boolean(env.BLOB_READ_WRITE_TOKEN),
     authentication: Boolean(

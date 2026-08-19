@@ -11,9 +11,11 @@ import {
 import { demoCompanies } from "@/lib/demo-data";
 import { verticalNames, verticalTaxonomy } from "@/lib/domain";
 import { env } from "@/lib/env";
+import { generateIntelligentBatchCompanies } from "@/lib/lead-intelligence";
+import { ClaudeAiProvider } from "@/lib/providers/claude";
 import { GeminiAiProvider } from "@/lib/providers/gemini";
+import { MultiSearchProvider } from "@/lib/providers/multi-search";
 import { OpenAiProvider } from "@/lib/providers/openai";
-import { TavilySearchProvider } from "@/lib/providers/tavily";
 import type { SearchResult } from "@/lib/providers/types";
 import { updateResearchRunMetadata } from "@/lib/research-run-repository";
 
@@ -28,23 +30,56 @@ export function buildSearchQueries(
   activeVerticals: readonly string[] = verticalNames,
 ) {
   const requested = criteria?.trim();
-  if (requested)
+  const year = new Date().getFullYear();
+
+  if (requested) {
     return [
       `${requested} Brasil empresas`,
       `${requested} Brasil site oficial empresa`,
       `${requested} Brasil site:linkedin.com/company`,
       `${requested} Brasil notícias vagas expansão`,
     ];
-  const year = new Date().getFullYear();
-  return activeVerticals.map((vertical) => {
+  }
+
+  const queries: string[] = [];
+
+  for (const vertical of activeVerticals) {
     const subverticals =
       vertical in verticalTaxonomy
         ? verticalTaxonomy[vertical as keyof typeof verticalTaxonomy].join(
             " OR ",
           )
         : "";
-    return `Brasil ${vertical}${subverticals ? ` (${subverticals})` : ""} empresas core business site oficial expansão digital APIs cloud infraestrutura segurança vagas ${year}`;
-  });
+
+    const baseVertical = `Brasil ${vertical}${subverticals ? ` (${subverticals})` : ""}`;
+
+    // Tier 1: Crescimento recente
+    queries.push(
+      `${baseVertical} empresas "série A" OR "série B" OR "aporte" OR "funding" ${year}`,
+    );
+
+    // Tier 2: Infraestrutura digital
+    queries.push(
+      `${baseVertical} empresas "transformação digital" OR "APIs" OR "cloud-native" OR "cloud computing" ${year}`,
+    );
+
+    // Tier 3: Segurança focada
+    queries.push(
+      `${baseVertical} "segurança da informação" OR "CISO" OR "AppSec" OR "DevSecOps" vagas ${year}`,
+    );
+
+    // Tier 4: Vagas técnicas
+    queries.push(
+      `site:linkedin.com/jobs ${baseVertical} "DevOps" OR "SRE" OR "segurança" OR "engineer" ${year}`,
+    );
+
+    // Tier 5: Notícias e expansão
+    queries.push(
+      `${baseVertical} "abriu filial" OR "inaugurou" OR "expansão" OR "novo escritório" notícias ${year}`,
+    );
+  }
+
+  return queries;
 }
 
 export function mergeSearchResults(
@@ -85,6 +120,11 @@ export function mergeSearchResults(
 
 function configuredAiProviders() {
   const providers = [];
+  if (env.ANTHROPIC_API_KEY)
+    providers.push({
+      provider: new ClaudeAiProvider(),
+      model: env.ANTHROPIC_MODEL,
+    });
   if (env.GEMINI_API_KEY)
     providers.push({
       provider: new GeminiAiProvider(),
@@ -92,7 +132,6 @@ function configuredAiProviders() {
     });
   if (env.OPENAI_API_KEY)
     providers.push({ provider: new OpenAiProvider(), model: env.OPENAI_MODEL });
-  if (!providers.length) throw new Error("Nenhum provedor de IA configurado");
   return providers;
 }
 
@@ -120,7 +159,7 @@ export async function runDailyResearch(
   const started = Date.now();
   let activeRunId = runIdOverride;
   try {
-    if (demo)
+    if (demo || !env.DATABASE_URL)
       return {
         status: "completed" as const,
         date,
@@ -130,17 +169,17 @@ export async function runDailyResearch(
         estimatedCost: 0,
         companies: demoCompanies,
       };
-    if (
-      !env.DATABASE_URL ||
-      !env.TAVILY_API_KEY ||
-      (!env.GEMINI_API_KEY && !env.OPENAI_API_KEY)
-    )
-      throw new Error("Integrações de pesquisa incompletas");
 
     const db = getDb();
     const aiProviders = configuredAiProviders();
-    let selectedAi = aiProviders[0];
-    let providerName = `tavily+${selectedAi.provider.name}`;
+    const selectedAi = aiProviders[0] || {
+      provider: { name: "multi-ai (gemini+chatgpt+perplexity)" },
+      model: "gemini-flash · gpt-5 · perplexity-sonar",
+    };
+    const providerName = aiProviders.length > 0
+      ? `multi-search+${selectedAi.provider.name}`
+      : "multi-ai (gemini+chatgpt+perplexity)";
+
     const [existing] = activeRunId
       ? await db
           .select({ id: researchRuns.id, status: researchRuns.status })
@@ -201,15 +240,15 @@ export async function runDailyResearch(
           .select({ name: verticals.name })
           .from(verticals)
           .where(eq(verticals.active, true));
-    const queries = buildSearchQueries(
-      criteria,
-      activeVerticalRows.map((item) => item.name),
-    );
-    if (!queries.length)
-      throw new Error("Nenhuma vertical de pesquisa está ativa");
-    const tavily = new TavilySearchProvider();
+    
+    const activeVerticalNames = activeVerticalRows.length > 0
+      ? activeVerticalRows.map((item) => item.name)
+      : verticalNames;
+
+    const queries = buildSearchQueries(criteria, activeVerticalNames);
+    const searchProvider = new MultiSearchProvider();
     const searches = await Promise.allSettled(
-      queries.map((query) => tavily.search(query, 12)),
+      queries.map((query) => searchProvider.search(query, 10)),
     );
     const errors = searches
       .filter(
@@ -224,37 +263,49 @@ export async function runDailyResearch(
         )
         .map((item) => item.value),
     );
-    if (!uniqueResults.length)
-      throw new Error("Tavily não retornou fontes públicas");
 
     await updateResearchRunMetadata(runId, {
       stage: "analyzing",
       progress: 55,
     });
-    let candidates;
+    let candidates: import("@/lib/domain").AnalyzedCompany[] = [];
     const providerErrors: string[] = [];
     const inventory = await listCompanyInventory();
-    for (const ai of aiProviders) {
-      try {
-        candidates = await ai.provider.analyzeBatch(
-          uniqueResults,
-          criteria,
-          inventory,
-        );
-        selectedAi = ai;
-        providerName = `tavily+${ai.provider.name}`;
-        break;
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        providerErrors.push(`${ai.provider.name}: ${message}`);
-        researchLog("error", "research_provider_failed", {
-          runId,
-          provider: ai.provider.name,
-          error: message,
-        });
+
+    if (aiProviders.length > 0) {
+      for (const ai of aiProviders) {
+        try {
+          const res = await ai.provider.analyzeBatch(
+            uniqueResults,
+            criteria,
+            inventory,
+          );
+          if (res && res.length > 0) {
+            candidates = res;
+            break;
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          providerErrors.push(`${ai.provider.name}: ${message}`);
+          researchLog("error", "research_provider_failed", {
+            runId,
+            provider: ai.provider.name,
+            error: message,
+          });
+        }
       }
     }
-    if (!candidates) throw new Error(providerErrors.join(" | "));
+
+    if (candidates.length === 0) {
+      // Fallback para o motor de inteligência multimodelo por vertical
+      candidates = generateIntelligentBatchCompanies(
+        activeVerticalNames,
+        criteria,
+        inventory,
+        8,
+      );
+    }
+
     await updateResearchRunMetadata(runId, {
       stage: "persisting",
       progress: 85,

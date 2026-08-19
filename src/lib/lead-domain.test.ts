@@ -16,10 +16,10 @@ const context = {
 };
 
 describe("pesquisa de leads", () => {
-  it("gera quatro consultas complementares por empresa", () => {
+  it("gera consultas complementares e dinâmicas por empresa", () => {
     const queries = buildLeadSearchQueries(context);
 
-    expect(queries).toHaveLength(4);
+    expect(queries).toHaveLength(5);
     expect(queries.join(" ")).toContain("Empresa Teste");
     expect(queries.join(" ")).toContain("CTO");
     expect(queries).toContainEqual(expect.stringContaining("linkedin.com/in"));
