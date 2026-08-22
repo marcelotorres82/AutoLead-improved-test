@@ -83,18 +83,16 @@ export default function CompanyDetail() {
             onClick={async () => {
               setResearching(true);
               try {
-                const response = await fetch("/api/research/manual", {
-                  method: "POST",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify({
-                    query: `${c.name} ${c.domain} notícias tecnologia expansão`,
-                    forceRefresh: true,
-                  }),
-                });
+                const response = await fetch(
+                  `/api/companies/${c.id}/research`,
+                  {
+                    method: "POST",
+                  },
+                );
                 if (!response.ok)
                   throw new Error("Falha ao iniciar nova pesquisa");
                 toast.success(
-                  "Nova pesquisa registrada; o histórico anterior foi preservado",
+                  "Atualização incremental iniciada; o histórico anterior será preservado",
                 );
               } catch (error) {
                 toast.error(
@@ -111,6 +109,27 @@ export default function CompanyDetail() {
               className={`size-4 ${researching ? "animate-spin" : ""}`}
             />
             {researching ? "Pesquisando…" : "Research Again"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={async () => {
+              const response = await fetch("/api/crm-outbox", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  companyId: c.id,
+                  destination: "Salesloft",
+                }),
+              });
+              if (response.ok)
+                toast.success(
+                  "Registro preparado para aprovação antes do envio ao CRM",
+                );
+              else
+                toast.error("Não foi possível preparar o registro para o CRM");
+            }}
+          >
+            Preparar CRM
           </Button>
           <select
             aria-label="Alterar status"
@@ -293,6 +312,47 @@ export default function CompanyDetail() {
           </Card>
           <Card>
             <CardHeader>
+              <CardTitle>Website Intelligence</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {(c.technicalSignals ?? []).length ? (
+                  c.technicalSignals?.map((signal) => (
+                    <Badge key={`${signal.value}-${signal.sourceUrl}`}>
+                      {signal.value} · {signal.detectionMethod} ·{" "}
+                      {signal.confidence}%
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    A inspeção determinística ainda não encontrou sinais
+                    técnicos.
+                  </p>
+                )}
+              </div>
+              {(c.websiteSnapshots ?? []).length ? (
+                <div className="space-y-2">
+                  {c.websiteSnapshots?.slice(0, 6).map((snapshot) => (
+                    <div
+                      key={`${snapshot.url}-${snapshot.fetchedAt}`}
+                      className="flex flex-col justify-between gap-2 rounded-lg border p-3 text-sm md:flex-row md:items-center"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{snapshot.url}</p>
+                        <p className="text-xs text-slate-500">
+                          {snapshot.category} ·{" "}
+                          {snapshot.fetchedAt.slice(0, 16).replace("T", " ")}
+                        </p>
+                      </div>
+                      <Badge>{snapshot.change}</Badge>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
               <CardTitle>Preparar pesquisa no Sales Navigator</CardTitle>
             </CardHeader>
             <CardContent>
@@ -346,6 +406,28 @@ export default function CompanyDetail() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-lg border p-3 text-xs">
+                <p className="font-semibold">Perfil de scoring</p>
+                <p className="text-slate-500">
+                  {c.scoringProfileVersion ?? "default-v1"}
+                </p>
+                {c.evidenceAudit ? (
+                  <div className="mt-2 border-t pt-2">
+                    <p>
+                      Auditoria: {c.evidenceAudit.status} ·{" "}
+                      {c.evidenceAudit.score}/100
+                    </p>
+                    {c.evidenceAudit.issues.map((issue) => (
+                      <p
+                        key={issue}
+                        className="mt-1 text-amber-700 dark:text-amber-300"
+                      >
+                        · {issue}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               {breakdown.map((b) => (
                 <div key={b.label}>
                   <div className="mb-1 flex justify-between text-xs">

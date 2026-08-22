@@ -42,10 +42,12 @@ export function ResearchRunList({ limit = 10 }: { limit?: number }) {
                 <p className="truncate text-sm font-semibold">
                   {run.researchType === "leads"
                     ? `Leads · ${run.companyName ?? "empresa"}`
-                    : (run.criteria ??
-                      (run.kind === "daily"
-                        ? "Pesquisa diária"
-                        : "Pesquisa manual"))}
+                    : run.researchType === "company-refresh"
+                      ? `Atualização · ${run.companyName ?? "empresa"}`
+                      : (run.criteria ??
+                        (run.kind === "daily"
+                          ? "Pesquisa diária"
+                          : "Pesquisa manual"))}
                 </p>
                 <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
                   <Clock3 className="size-3" />
@@ -60,6 +62,16 @@ export function ResearchRunList({ limit = 10 }: { limit?: number }) {
                 {stageLabels[run.stage] ?? run.status}
               </Badge>
             </div>
+            {run.stages?.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {run.stages.map((stage) => (
+                  <Badge key={stage.id}>
+                    {stage.stage} · {stage.status}
+                    {stage.attempt > 1 ? ` · tentativa ${stage.attempt}` : ""}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
             <div className="mt-3 h-1.5 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
               <div
                 className={`h-full rounded ${failed ? "bg-red-500" : "bg-cyan-500"}`}

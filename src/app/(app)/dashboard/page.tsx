@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -25,6 +25,26 @@ export default function Dashboard() {
   const { companies, lushaUsed, generate, demoMode } = useDemoStore();
   const [isResearching, setIsResearching] = useState(false);
   const [referenceDate] = useState(() => new Date());
+  const [dailyQueue, setDailyQueue] = useState<
+    Array<{ id: string; companyId: string; status: string }>
+  >([]);
+  useEffect(() => {
+    if (demoMode) return;
+    const controller = new AbortController();
+    void fetch("/api/daily-queue", {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : { queue: [] }))
+      .then((result) =>
+        setDailyQueue(Array.isArray(result.queue) ? result.queue : []),
+      )
+      .catch((error) => {
+        if (error instanceof Error && error.name !== "AbortError")
+          toast.error("Não foi possível carregar a fila diária");
+      });
+    return () => controller.abort();
+  }, [demoMode]);
   const today = dateInSaoPaulo(referenceDate);
   const weekStart = dateInSaoPaulo(
     new Date(referenceDate.getTime() - 6 * 86_400_000),
@@ -72,6 +92,46 @@ export default function Dashboard() {
       style: "text-cyan-600 bg-cyan-50",
     },
   ];
+  const queueByCompany = new Map(
+    dailyQueue.map((item) => [item.companyId, item]),
+  );
+  const companiesById = new Map(
+    companies.map((company) => [company.id, company]),
+  );
+  const radarCompanies = dailyQueue.length
+    ? dailyQueue
+        .map((item) => companiesById.get(item.companyId))
+        .filter((company): company is (typeof companies)[number] =>
+          Boolean(company),
+        )
+    : companies
+        .filter((company) =>
+          demoMode ? true : company.qualificationStatus === "READY",
+        )
+        .slice()
+        .sort(
+          (a, b) =>
+            (b.opportunityScore ?? b.score) - (a.opportunityScore ?? a.score),
+        )
+        .slice(0, 30);
+  async function updateQueueStatus(
+    queueId: string,
+    status: "CLAIMED" | "CONTACTED",
+  ) {
+    const response = await fetch(`/api/daily-queue/${queueId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        status,
+        actor: "SDR",
+        outcome: status === "CONTACTED" ? "CONTACT_ATTEMPTED" : undefined,
+      }),
+    });
+    if (!response.ok) throw new Error("Não foi possível atualizar a fila");
+    setDailyQueue((items) =>
+      items.map((item) => (item.id === queueId ? { ...item, status } : item)),
+    );
+  }
   return (
     <>
       <PageHeading
@@ -211,46 +271,65 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {companies
-                  .filter((company) =>
-                    demoMode ? true : company.qualificationStatus === "READY",
-                  )
-                  .slice()
-                  .sort(
-                    (a, b) =>
-                      (b.opportunityScore ?? b.score) -
-                      (a.opportunityScore ?? a.score),
-                  )
-                  .slice(0, 30)
-                  .map((c) => (
-                    <tr key={c.id} className="border-b last:border-0">
-                      <td className="p-3 font-semibold">{c.name}</td>
-                      <td className="p-3">{c.vertical}</td>
-                      <td className="p-3">
-                        {c.opportunityScore ?? c.score}
-                        <span className="ml-1 text-xs text-slate-500">
-                          {scoreLabel(c.opportunityScore ?? c.score)}
-                        </span>
-                      </td>
-                      <td className="p-3">{c.confidenceScore ?? 0}</td>
-                      <td className="p-3">{c.waapScore}</td>
-                      <td className="p-3">{c.apiScore}</td>
-                      <td className="p-3">{c.guardicoreScore}</td>
-                      <td className="p-3">
-                        <Badge>{c.solution}</Badge>
-                      </td>
-                      <td className="p-3">
-                        <Badge>{c.qualificationStatus ?? "DEMO"}</Badge>
-                      </td>
-                      <td className="p-3">
+                {radarCompanies.map((c) => (
+                  <tr key={c.id} className="border-b last:border-0">
+                    <td className="p-3 font-semibold">{c.name}</td>
+                    <td className="p-3">{c.vertical}</td>
+                    <td className="p-3">
+                      {c.opportunityScore ?? c.score}
+                      <span className="ml-1 text-xs text-slate-500">
+                        {scoreLabel(c.opportunityScore ?? c.score)}
+                      </span>
+                    </td>
+                    <td className="p-3">{c.confidenceScore ?? 0}</td>
+                    <td className="p-3">{c.waapScore}</td>
+                    <td className="p-3">{c.apiScore}</td>
+                    <td className="p-3">{c.guardicoreScore}</td>
+                    <td className="p-3">
+                      <Badge>{c.solution}</Badge>
+                    </td>
+                    <td className="p-3">
+                      <Badge>{c.qualificationStatus ?? "DEMO"}</Badge>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex gap-1">
                         <Button asChild size="sm" variant="ghost">
                           <Link href={`/companies/${c.id}`}>
                             Abrir <ArrowRight className="size-4" />
                           </Link>
                         </Button>
-                      </td>
-                    </tr>
-                  ))}
+                        {queueByCompany.get(c.id)?.status === "READY" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              void updateQueueStatus(
+                                queueByCompany.get(c.id)!.id,
+                                "CLAIMED",
+                              ).catch((error) => toast.error(error.message))
+                            }
+                          >
+                            Assumir
+                          </Button>
+                        ) : null}
+                        {queueByCompany.get(c.id)?.status === "CLAIMED" ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              void updateQueueStatus(
+                                queueByCompany.get(c.id)!.id,
+                                "CONTACTED",
+                              ).catch((error) => toast.error(error.message))
+                            }
+                          >
+                            Contatado
+                          </Button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </CardContent>

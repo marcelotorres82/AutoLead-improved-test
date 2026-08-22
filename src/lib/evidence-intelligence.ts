@@ -34,6 +34,7 @@ export const technicalSignalSchema = z.object({
     "structured_data",
     "public_document",
     "search",
+    "website",
     "manual",
   ]),
   confidence: z.number().min(0).max(100),

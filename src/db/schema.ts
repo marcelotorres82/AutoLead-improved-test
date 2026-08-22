@@ -47,6 +47,30 @@ export const verticals = pgTable(
   },
   (t) => [uniqueIndex("verticals_name_uq").on(t.name)],
 );
+export const scoringProfiles = pgTable(
+  "scoring_profiles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    version: text("version").notNull(),
+    verticalName: text("vertical_name"),
+    solution: solutionEnum("solution"),
+    weights: jsonb("weights").$type<Record<string, number>>().notNull(),
+    evidenceRequirements: jsonb("evidence_requirements")
+      .$type<Record<string, number>>()
+      .notNull(),
+    active: boolean("active").notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("scoring_profiles_name_version_uq").on(t.name, t.version),
+    index("scoring_profiles_lookup_idx").on(
+      t.verticalName,
+      t.solution,
+      t.active,
+    ),
+  ],
+);
 export const researchRuns = pgTable(
   "research_runs",
   {
@@ -136,6 +160,52 @@ export const companies = pgTable(
     uniqueIndex("companies_cnpj_uq").on(t.cnpj),
   ],
 );
+export const researchStageRuns = pgTable(
+  "research_stage_runs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    researchRunId: uuid("research_run_id")
+      .notNull()
+      .references(() => researchRuns.id, { onDelete: "cascade" }),
+    companyId: uuid("company_id").references(() => companies.id, {
+      onDelete: "cascade",
+    }),
+    stage: text("stage").notNull(),
+    status: text("status").notNull().default("PENDING"),
+    attempt: integer("attempt").notNull().default(1),
+    inputHash: text("input_hash"),
+    outputReference: text("output_reference"),
+    provider: text("provider"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    estimatedCost: numeric("estimated_cost", {
+      precision: 12,
+      scale: 6,
+    })
+      .notNull()
+      .default("0"),
+    durationMs: integer("duration_ms"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    retryAt: timestamp("retry_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    metadata: jsonb("metadata"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("research_stage_run_attempt_uq").on(
+      t.researchRunId,
+      t.companyId,
+      t.stage,
+      t.attempt,
+    ),
+    index("research_stage_run_status_idx").on(t.status, t.retryAt),
+    index("research_stage_run_company_idx").on(t.companyId, t.startedAt),
+  ],
+);
 export const companyAliases = pgTable(
   "company_aliases",
   {
@@ -179,6 +249,41 @@ export const sources = pgTable(
   },
   (t) => [uniqueIndex("sources_url_uq").on(t.url)],
 );
+export const sourceFetches = pgTable(
+  "source_fetches",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    researchRunId: uuid("research_run_id").references(() => researchRuns.id, {
+      onDelete: "set null",
+    }),
+    requestedUrl: text("requested_url").notNull(),
+    finalUrl: text("final_url").notNull(),
+    category: text("category").notNull().default("other"),
+    statusCode: integer("status_code"),
+    mimeType: text("mime_type"),
+    contentHash: text("content_hash").notNull(),
+    contentLength: integer("content_length").notNull().default(0),
+    title: text("title"),
+    excerpt: text("excerpt"),
+    fetchDurationMs: integer("fetch_duration_ms"),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    metadata: jsonb("metadata"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("source_fetch_company_hash_uq").on(
+      t.companyId,
+      t.finalUrl,
+      t.contentHash,
+    ),
+    index("source_fetch_company_date_idx").on(t.companyId, t.fetchedAt),
+  ],
+);
 export const companyEvidence = pgTable(
   "company_evidence",
   {
@@ -208,6 +313,31 @@ export const companyEvidence = pgTable(
     ...timestamps,
   },
   (t) => [index("evidence_company_idx").on(t.companyId)],
+);
+export const evidenceVersions = pgTable(
+  "evidence_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    evidenceId: uuid("evidence_id")
+      .notNull()
+      .references(() => companyEvidence.id, { onDelete: "cascade" }),
+    sourceFetchId: uuid("source_fetch_id").references(() => sourceFetches.id, {
+      onDelete: "set null",
+    }),
+    version: integer("version").notNull(),
+    status: text("status").notNull().default("ACTIVE"),
+    contentHash: text("content_hash").notNull(),
+    claim: text("claim").notNull(),
+    excerpt: text("excerpt"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("evidence_version_uq").on(t.evidenceId, t.version),
+    index("evidence_version_status_idx").on(t.status),
+  ],
 );
 export const technicalSignals = pgTable(
   "technical_signals",
@@ -249,6 +379,13 @@ export const opportunityScores = pgTable(
     evidenceCount: integer("evidence_count").notNull(),
     independentSourceCount: integer("independent_source_count").notNull(),
     algorithmVersion: text("algorithm_version").notNull(),
+    scoringProfileId: uuid("scoring_profile_id").references(
+      () => scoringProfiles.id,
+      { onDelete: "set null" },
+    ),
+    scoringProfileVersion: text("scoring_profile_version")
+      .notNull()
+      .default("default-v1"),
     breakdown: jsonb("breakdown").notNull(),
     ...timestamps,
   },
@@ -297,6 +434,11 @@ export const dailyLeadQueue = pgTable(
     confidenceScore: integer("confidence_score").notNull(),
     recommendedSolution: text("recommended_solution").notNull(),
     whyNow: text("why_now"),
+    claimedBy: text("claimed_by"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    outcome: text("outcome"),
+    outcomeNote: text("outcome_note"),
     ...timestamps,
   },
   (t) => [
@@ -305,6 +447,52 @@ export const dailyLeadQueue = pgTable(
       t.companyId,
     ),
     index("daily_lead_queue_date_rank_idx").on(t.queueDate, t.rank),
+  ],
+);
+export const evidenceAudits = pgTable(
+  "evidence_audits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    researchRunId: uuid("research_run_id").references(() => researchRuns.id, {
+      onDelete: "set null",
+    }),
+    auditType: text("audit_type").notNull(),
+    status: text("status").notNull(),
+    score: integer("score").notNull(),
+    issues: jsonb("issues").$type<string[]>().notNull().default([]),
+    sampled: boolean("sampled").notNull().default(false),
+    metadata: jsonb("metadata"),
+    ...timestamps,
+  },
+  (t) => [
+    index("evidence_audit_company_idx").on(t.companyId, t.createdAt),
+    index("evidence_audit_status_idx").on(t.status),
+  ],
+);
+export const crmOutbox = pgTable(
+  "crm_outbox",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "restrict" }),
+    destination: text("destination").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    payload: jsonb("payload").notNull(),
+    status: text("status").notNull().default("PENDING_APPROVAL"),
+    approvedBy: text("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("crm_outbox_idempotency_uq").on(t.idempotencyKey),
+    index("crm_outbox_status_idx").on(t.status, t.createdAt),
   ],
 );
 export const researchCache = pgTable(

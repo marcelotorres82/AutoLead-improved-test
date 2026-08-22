@@ -20,6 +20,11 @@ import { OpenAiProvider } from "@/lib/providers/openai";
 import type { SearchResult } from "@/lib/providers/types";
 import { searchWithCache } from "@/lib/research-cache";
 import { updateResearchRunMetadata } from "@/lib/research-run-repository";
+import {
+  completeResearchStage,
+  failResearchStage,
+  startResearchStage,
+} from "@/lib/research-stage-repository";
 
 const running = new Set<string>();
 
@@ -183,6 +188,7 @@ export async function runDailyResearch(
   running.add(lockKey);
   const started = Date.now();
   let activeRunId = runIdOverride;
+  let activeStageId: string | undefined;
   try {
     if (demo || !env.DATABASE_URL)
       return {
@@ -259,6 +265,13 @@ export async function runDailyResearch(
       kind,
       stage: "searching",
     });
+    const searchStage = await startResearchStage({
+      researchRunId: runId,
+      stage: "DISCOVERY_SEARCH",
+      provider: "multi-search",
+      payload: { criteria, forceRefresh },
+    });
+    activeStageId = searchStage.id;
 
     const activeVerticalRows = criteria
       ? []
@@ -301,6 +314,15 @@ export async function runDailyResearch(
         )
         .map((item) => item.value),
     ).map(sanitizeSearchResult);
+    await completeResearchStage(searchStage.id, {
+      outputReference: `sources:${uniqueResults.length}`,
+      metadata: {
+        queryCount: queries.length,
+        sourceCount: uniqueResults.length,
+        errors,
+      },
+    });
+    activeStageId = undefined;
     if (env.RESEARCH_DEBUG === "true")
       researchLog("info", "research_debug_sources", {
         runId,
@@ -320,6 +342,13 @@ export async function runDailyResearch(
     let candidates: import("@/lib/domain").AnalyzedCompany[] = [];
     const providerErrors: string[] = [];
     const inventory = await listCompanyInventory();
+    const analysisStage = await startResearchStage({
+      researchRunId: runId,
+      stage: "AI_ANALYSIS",
+      provider: selectedAi.provider.name,
+      payload: { sourceCount: uniqueResults.length, criteria },
+    });
+    activeStageId = analysisStage.id;
 
     if (aiProviders.length > 0) {
       for (const ai of aiProviders) {
@@ -352,17 +381,47 @@ export async function runDailyResearch(
         sourceCount: uniqueResults.length,
         providerErrors,
       });
+    const estimatedInputTokens = Math.ceil(
+      uniqueResults.reduce(
+        (total, result) => total + result.title.length + result.content.length,
+        0,
+      ) / 4,
+    );
+    const estimatedOutputTokens = Math.ceil(
+      JSON.stringify(candidates).length / 4,
+    );
+    await completeResearchStage(analysisStage.id, {
+      outputReference: `candidates:${candidates.length}`,
+      inputTokens: estimatedInputTokens,
+      outputTokens: estimatedOutputTokens,
+      metadata: {
+        estimationMethod: "characters-divided-by-four",
+        providerErrors,
+      },
+    });
+    activeStageId = undefined;
 
     await updateResearchRunMetadata(runId, {
       stage: "persisting",
       progress: 85,
     });
+    const persistenceStage = await startResearchStage({
+      researchRunId: runId,
+      stage: "PERSIST_AND_ENRICH",
+      payload: { candidates: candidates.length },
+    });
+    activeStageId = persistenceStage.id;
     const persisted = await persistAnalyzedCompanies(
       candidates,
       uniqueResults,
       runId,
       criteria,
     );
+    await completeResearchStage(persistenceStage.id, {
+      outputReference: `companies:${persisted.created}`,
+      metadata: persisted,
+    });
+    activeStageId = undefined;
     const queued = kind === "daily" ? await buildDailyLeadQueue(date) : 0;
     const durationMs = Date.now() - started;
     await db
@@ -372,6 +431,8 @@ export async function runDailyResearch(
         provider: providerName,
         model: selectedAi.model,
         searchCount: queries.length,
+        inputTokens: estimatedInputTokens,
+        outputTokens: estimatedOutputTokens,
         durationMs,
         foundCount: persisted.created,
         duplicateCount: persisted.duplicateCount,
@@ -415,6 +476,7 @@ export async function runDailyResearch(
       durationMs: Date.now() - started,
     });
     const db = env.DATABASE_URL ? getDb() : null;
+    if (activeStageId) await failResearchStage(activeStageId, error);
     if (db)
       await db
         .update(researchRuns)

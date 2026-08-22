@@ -7,11 +7,13 @@ import {
   companyAliases,
   companyEvidence,
   companyStatusHistory,
+  evidenceAudits,
   opportunityScores,
   researchRunCompanies,
   solutionScores,
   sdrIntelligence,
   sources,
+  sourceFetches,
   technicalSignals,
   users,
   verticals,
@@ -44,6 +46,8 @@ import { SDRIntelligenceEngine } from "@/lib/prospect-pipeline";
 import { env } from "@/lib/env";
 import type { SearchResult } from "@/lib/providers/types";
 import type { CompanyInventoryItem } from "@/lib/providers/types";
+import { withResearchStage } from "@/lib/research-stage-repository";
+import { refreshCompanyWebsiteIntelligence } from "@/lib/website-intelligence-repository";
 
 type AnalysisMetadata = {
   apiScore: number;
@@ -115,26 +119,40 @@ export async function listCompanies(): Promise<Company[]> {
     .limit(500);
   if (!rows.length) return [];
   const ids = rows.map(({ company }) => company.id);
-  const [evidenceRows, scoreRows, opportunityRows, signalRows] =
-    await Promise.all([
-      db
-        .select({ evidence: companyEvidence, source: sources })
-        .from(companyEvidence)
-        .innerJoin(sources, eq(companyEvidence.sourceId, sources.id))
-        .where(inArray(companyEvidence.companyId, ids)),
-      db
-        .select()
-        .from(solutionScores)
-        .where(inArray(solutionScores.companyId, ids)),
-      db
-        .select()
-        .from(opportunityScores)
-        .where(inArray(opportunityScores.companyId, ids)),
-      db
-        .select()
-        .from(technicalSignals)
-        .where(inArray(technicalSignals.companyId, ids)),
-    ]);
+  const [
+    evidenceRows,
+    scoreRows,
+    opportunityRows,
+    signalRows,
+    fetchRows,
+    auditRows,
+  ] = await Promise.all([
+    db
+      .select({ evidence: companyEvidence, source: sources })
+      .from(companyEvidence)
+      .innerJoin(sources, eq(companyEvidence.sourceId, sources.id))
+      .where(inArray(companyEvidence.companyId, ids)),
+    db
+      .select()
+      .from(solutionScores)
+      .where(inArray(solutionScores.companyId, ids)),
+    db
+      .select()
+      .from(opportunityScores)
+      .where(inArray(opportunityScores.companyId, ids)),
+    db
+      .select()
+      .from(technicalSignals)
+      .where(inArray(technicalSignals.companyId, ids)),
+    db
+      .select()
+      .from(sourceFetches)
+      .where(inArray(sourceFetches.companyId, ids)),
+    db
+      .select()
+      .from(evidenceAudits)
+      .where(inArray(evidenceAudits.companyId, ids)),
+  ]);
   const evidenceByCompany = new Map<string, typeof evidenceRows>();
   for (const row of evidenceRows) {
     const items = evidenceByCompany.get(row.evidence.companyId) ?? [];
@@ -156,6 +174,18 @@ export async function listCompanies(): Promise<Company[]> {
     items.push(signal);
     signalsByCompany.set(signal.companyId, items);
   }
+  const fetchesByCompany = new Map<string, typeof fetchRows>();
+  for (const fetch of fetchRows) {
+    const items = fetchesByCompany.get(fetch.companyId) ?? [];
+    items.push(fetch);
+    fetchesByCompany.set(fetch.companyId, items);
+  }
+  const latestAuditByCompany = new Map<string, (typeof auditRows)[number]>();
+  for (const audit of auditRows) {
+    const current = latestAuditByCompany.get(audit.companyId);
+    if (!current || audit.createdAt > current.createdAt)
+      latestAuditByCompany.set(audit.companyId, audit);
+  }
 
   return rows.map(({ company, vertical }) => {
     const metadata = (company.analysisMetadata ??
@@ -171,6 +201,10 @@ export async function listCompanies(): Promise<Company[]> {
     );
     const scores = scoresByCompany.get(company.id) ?? new Map();
     const evidenceFirst = opportunityByCompany.get(company.id);
+    const websiteFetches = (fetchesByCompany.get(company.id) ?? []).sort(
+      (a, b) => b.fetchedAt.getTime() - a.fetchedAt.getTime(),
+    );
+    const latestAudit = latestAuditByCompany.get(company.id);
     const valuesByKind = (kind: string) =>
       companyEvidenceRows
         .filter(({ evidence }) => evidence.kind === kind)
@@ -241,8 +275,34 @@ export async function listCompanies(): Promise<Company[]> {
       digitalExposureScore: evidenceFirst?.digitalExposureScore ?? 0,
       confidenceScore: evidenceFirst?.confidenceScore ?? 0,
       opportunityScore: evidenceFirst?.opportunityScore ?? company.score,
+      scoringProfileVersion:
+        evidenceFirst?.scoringProfileVersion ?? "default-v1",
       qualificationStatus:
         company.qualificationStatus === "READY" ? "READY" : "NEEDS_RESEARCH",
+      websiteSnapshots: websiteFetches.slice(0, 12).map((snapshot, index) => {
+        const previous = websiteFetches
+          .slice(index + 1)
+          .find((item) => item.finalUrl === snapshot.finalUrl);
+        return {
+          url: snapshot.finalUrl,
+          category: snapshot.category,
+          contentHash: snapshot.contentHash,
+          fetchedAt: snapshot.fetchedAt.toISOString(),
+          change: !previous
+            ? ("NEW" as const)
+            : previous.contentHash === snapshot.contentHash
+              ? ("UNCHANGED" as const)
+              : ("CHANGED" as const),
+        };
+      }),
+      evidenceAudit: latestAudit
+        ? {
+            status: latestAudit.status,
+            score: latestAudit.score,
+            issues: latestAudit.issues ?? [],
+            auditedAt: latestAudit.createdAt.toISOString(),
+          }
+        : undefined,
       sources: uniqueSources.map((source) => ({
         id: source.id,
         title: source.title,
@@ -542,6 +602,35 @@ export async function persistAnalyzedCompanies(
       companyId: inserted.id,
       rank: created + 1,
     });
+    try {
+      await withResearchStage(
+        {
+          researchRunId: runId,
+          companyId: inserted.id,
+          stage: "WEBSITE_INTELLIGENCE",
+          provider: "deterministic-web",
+          payload: { domain },
+        },
+        () => refreshCompanyWebsiteIntelligence(inserted.id, runId),
+        (website) => ({
+          outputReference: `website:${inserted.id}`,
+          metadata: {
+            pages: website.pages,
+            signals: website.signals,
+            changes: website.changes,
+          },
+        }),
+      );
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "website_intelligence_failed",
+          companyId: inserted.id,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
     known.push({ name: candidate.name, domain });
     created += 1;
   }

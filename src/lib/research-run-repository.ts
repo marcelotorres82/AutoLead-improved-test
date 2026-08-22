@@ -1,15 +1,15 @@
 import "server-only";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
-import { researchRuns } from "@/db/schema";
+import { researchRuns, researchStageRuns } from "@/db/schema";
 
 export type ResearchRunMetadata = {
   criteria?: string;
   stage?: string;
   progress?: number;
   workflowRunId?: string;
-  researchType?: "companies" | "leads";
+  researchType?: "companies" | "leads" | "company-refresh";
   companyId?: string;
   companyName?: string;
 };
@@ -32,12 +32,26 @@ export type ResearchRunView = {
   progress: number;
   createdAt: string;
   completedAt?: string;
-  researchType?: "companies" | "leads";
+  researchType?: "companies" | "leads" | "company-refresh";
   companyId?: string;
   companyName?: string;
+  stages?: Array<{
+    id: string;
+    stage: string;
+    status: string;
+    attempt: number;
+    provider?: string;
+    durationMs?: number;
+    inputTokens: number;
+    outputTokens: number;
+    error?: string;
+  }>;
 };
 
-function toView(row: typeof researchRuns.$inferSelect): ResearchRunView {
+function toView(
+  row: typeof researchRuns.$inferSelect,
+  stages: Array<typeof researchStageRuns.$inferSelect> = [],
+): ResearchRunView {
   const metadata = (row.metadata ?? {}) as ResearchRunMetadata;
   return {
     id: row.id,
@@ -60,6 +74,17 @@ function toView(row: typeof researchRuns.$inferSelect): ResearchRunView {
     researchType: metadata.researchType,
     companyId: metadata.companyId,
     companyName: metadata.companyName,
+    stages: stages.map((stage) => ({
+      id: stage.id,
+      stage: stage.stage,
+      status: stage.status,
+      attempt: stage.attempt,
+      provider: stage.provider ?? undefined,
+      durationMs: stage.durationMs ?? undefined,
+      inputTokens: stage.inputTokens,
+      outputTokens: stage.outputTokens,
+      error: stage.errorMessage ?? undefined,
+    })),
   };
 }
 
@@ -98,21 +123,46 @@ export async function createResearchRun(
 }
 
 export async function getResearchRun(id: string) {
-  const [row] = await getDb()
+  const db = getDb();
+  const [row] = await db
     .select()
     .from(researchRuns)
     .where(eq(researchRuns.id, id))
     .limit(1);
-  return row ? toView(row) : null;
+  if (!row) return null;
+  const stages = await db
+    .select()
+    .from(researchStageRuns)
+    .where(eq(researchStageRuns.researchRunId, id))
+    .orderBy(asc(researchStageRuns.startedAt));
+  return toView(row, stages);
 }
 
 export async function listResearchRuns(limit = 20) {
-  const rows = await getDb()
+  const db = getDb();
+  const rows = await db
     .select()
     .from(researchRuns)
     .orderBy(desc(researchRuns.createdAt))
     .limit(limit);
-  return rows.map(toView);
+  if (!rows.length) return [];
+  const stages = await db
+    .select()
+    .from(researchStageRuns)
+    .where(
+      inArray(
+        researchStageRuns.researchRunId,
+        rows.map((row) => row.id),
+      ),
+    )
+    .orderBy(asc(researchStageRuns.startedAt));
+  const byRun = new Map<string, typeof stages>();
+  for (const stage of stages) {
+    const items = byRun.get(stage.researchRunId) ?? [];
+    items.push(stage);
+    byRun.set(stage.researchRunId, items);
+  }
+  return rows.map((row) => toView(row, byRun.get(row.id)));
 }
 
 export async function findActiveLeadResearchRun(companyId: string) {

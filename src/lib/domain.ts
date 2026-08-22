@@ -164,7 +164,27 @@ export const companySchema = z.object({
   digitalExposureScore: z.number().min(0).max(100).optional(),
   confidenceScore: z.number().min(0).max(100).optional(),
   opportunityScore: z.number().min(0).max(100).optional(),
+  scoringProfileVersion: z.string().optional(),
   qualificationStatus: z.enum(["NEEDS_RESEARCH", "READY"]).optional(),
+  websiteSnapshots: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        category: z.string(),
+        contentHash: z.string(),
+        fetchedAt: z.string(),
+        change: z.enum(["NEW", "CHANGED", "UNCHANGED"]),
+      }),
+    )
+    .optional(),
+  evidenceAudit: z
+    .object({
+      status: z.string(),
+      score: z.number(),
+      issues: z.array(z.string()),
+      auditedAt: z.string(),
+    })
+    .optional(),
   sources: z.array(sourceSchema),
   titles: z.array(z.string()),
   navigatorQuery: z.string(),
