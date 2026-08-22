@@ -9,14 +9,16 @@ import {
   persistAnalyzedCompanies,
 } from "@/lib/company-repository";
 import { demoCompanies } from "@/lib/demo-data";
+import { buildDailyLeadQueue } from "@/lib/daily-queue";
 import { verticalNames, verticalTaxonomy } from "@/lib/domain";
 import { env } from "@/lib/env";
-import { generateIntelligentBatchCompanies } from "@/lib/lead-intelligence";
+import { sanitizeSearchResult } from "@/lib/external-content";
 import { ClaudeAiProvider } from "@/lib/providers/claude";
 import { GeminiAiProvider } from "@/lib/providers/gemini";
 import { MultiSearchProvider } from "@/lib/providers/multi-search";
 import { OpenAiProvider } from "@/lib/providers/openai";
 import type { SearchResult } from "@/lib/providers/types";
+import { searchWithCache } from "@/lib/research-cache";
 import { updateResearchRunMetadata } from "@/lib/research-run-repository";
 
 const running = new Set<string>();
@@ -41,7 +43,7 @@ export function buildSearchQueries(
     ];
   }
 
-  const queries: string[] = [];
+  const tiers: string[][] = [[], [], [], [], []];
 
   for (const vertical of activeVerticals) {
     const subverticals =
@@ -55,32 +57,32 @@ export function buildSearchQueries(
     const negFilter = "-banco -fintech -pagamento -adquirente -maquininha";
 
     // Tier 1: Crescimento recente
-    queries.push(
+    tiers[0].push(
       `${baseVertical} empresas "série A" OR "série B" OR "aporte" OR "funding" ${year} ${negFilter}`,
     );
 
     // Tier 2: Infraestrutura digital
-    queries.push(
+    tiers[1].push(
       `${baseVertical} empresas "transformação digital" OR "APIs" OR "cloud-native" OR "cloud computing" ${year} ${negFilter}`,
     );
 
     // Tier 3: Segurança focada
-    queries.push(
+    tiers[2].push(
       `${baseVertical} "segurança da informação" OR "CISO" OR "AppSec" OR "DevSecOps" vagas ${year} ${negFilter}`,
     );
 
     // Tier 4: Vagas técnicas
-    queries.push(
+    tiers[3].push(
       `site:linkedin.com/jobs ${baseVertical} "DevOps" OR "SRE" OR "segurança" OR "engineer" ${year} ${negFilter}`,
     );
 
     // Tier 5: Notícias e expansão
-    queries.push(
+    tiers[4].push(
       `${baseVertical} "abriu filial" OR "inaugurou" OR "expansão" OR "novo escritório" notícias ${year} ${negFilter}`,
     );
   }
 
-  return queries;
+  return tiers.flat();
 }
 
 export function mergeSearchResults(
@@ -120,20 +122,41 @@ export function mergeSearchResults(
 }
 
 function configuredAiProviders() {
-  const providers = [];
+  const providers: Array<{
+    key: "gemini" | "anthropic" | "openai";
+    provider: GeminiAiProvider | ClaudeAiProvider | OpenAiProvider;
+    model: string;
+  }> = [];
   if (env.ANTHROPIC_API_KEY)
     providers.push({
+      key: "anthropic",
       provider: new ClaudeAiProvider(),
-      model: env.ANTHROPIC_MODEL,
+      model:
+        env.LLM_PROVIDER === "anthropic" && env.LLM_MODEL
+          ? env.LLM_MODEL
+          : env.ANTHROPIC_MODEL,
     });
   if (env.GEMINI_API_KEY)
     providers.push({
+      key: "gemini",
       provider: new GeminiAiProvider(),
-      model: env.GEMINI_MODEL,
+      model:
+        env.LLM_PROVIDER === "gemini" && env.LLM_MODEL
+          ? env.LLM_MODEL
+          : env.GEMINI_MODEL,
     });
   if (env.OPENAI_API_KEY)
-    providers.push({ provider: new OpenAiProvider(), model: env.OPENAI_MODEL });
-  return providers;
+    providers.push({
+      key: "openai",
+      provider: new OpenAiProvider(),
+      model:
+        env.LLM_PROVIDER === "openai" && env.LLM_MODEL
+          ? env.LLM_MODEL
+          : env.OPENAI_MODEL,
+    });
+  return env.LLM_PROVIDER === "auto"
+    ? providers
+    : providers.sort((a) => (a.key === env.LLM_PROVIDER ? -1 : 1));
 }
 
 function researchLog(
@@ -152,6 +175,7 @@ export async function runDailyResearch(
   kind = "daily",
   criteria?: string,
   runIdOverride?: string,
+  forceRefresh = false,
 ) {
   const lockKey = runIdOverride ?? `${date}:${kind}`;
   if (running.has(lockKey))
@@ -177,9 +201,10 @@ export async function runDailyResearch(
       provider: { name: "multi-ai (gemini+chatgpt+perplexity)" },
       model: "gemini-flash · gpt-5 · perplexity-sonar",
     };
-    const providerName = aiProviders.length > 0
-      ? `multi-search+${selectedAi.provider.name}`
-      : "multi-ai (gemini+chatgpt+perplexity)";
+    const providerName =
+      aiProviders.length > 0
+        ? `multi-search+${selectedAi.provider.name}`
+        : "multi-ai (gemini+chatgpt+perplexity)";
 
     const [existing] = activeRunId
       ? await db
@@ -241,16 +266,28 @@ export async function runDailyResearch(
           .select({ name: verticals.name })
           .from(verticals)
           .where(eq(verticals.active, true));
-    
-    const activeVerticalNames = activeVerticalRows.length > 0
-      ? activeVerticalRows.map((item) => item.name)
-      : verticalNames;
 
-    const queries = buildSearchQueries(criteria, activeVerticalNames);
-    const searchProvider = new MultiSearchProvider();
-    const searches = await Promise.allSettled(
-      queries.map((query) => searchProvider.search(query, 10)),
+    const activeVerticalNames =
+      activeVerticalRows.length > 0
+        ? activeVerticalRows.map((item) => item.name)
+        : verticalNames;
+
+    const queries = buildSearchQueries(criteria, activeVerticalNames).slice(
+      0,
+      16,
     );
+    const searchProvider = new MultiSearchProvider();
+    const searches: PromiseSettledResult<SearchResult[]>[] = [];
+    for (let offset = 0; offset < queries.length; offset += 4) {
+      const batch = queries.slice(offset, offset + 4);
+      searches.push(
+        ...(await Promise.allSettled(
+          batch.map((query) =>
+            searchWithCache(searchProvider, query, 10, forceRefresh),
+          ),
+        )),
+      );
+    }
     const errors = searches
       .filter(
         (item): item is PromiseRejectedResult => item.status === "rejected",
@@ -263,7 +300,18 @@ export async function runDailyResearch(
             item.status === "fulfilled",
         )
         .map((item) => item.value),
-    );
+    ).map(sanitizeSearchResult);
+    if (env.RESEARCH_DEBUG === "true")
+      researchLog("info", "research_debug_sources", {
+        runId,
+        queries,
+        sources: uniqueResults.map((result) => ({
+          url: result.url,
+          provider: result.provider,
+          publishedAt: result.publishedAt,
+        })),
+        rejectedSearches: errors,
+      });
 
     await updateResearchRunMetadata(runId, {
       stage: "analyzing",
@@ -286,7 +334,8 @@ export async function runDailyResearch(
             break;
           }
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
+          const message =
+            error instanceof Error ? error.message : String(error);
           providerErrors.push(`${ai.provider.name}: ${message}`);
           researchLog("error", "research_provider_failed", {
             runId,
@@ -297,15 +346,12 @@ export async function runDailyResearch(
       }
     }
 
-    if (candidates.length === 0) {
-      // Fallback para o motor de inteligência multimodelo por vertical
-      candidates = generateIntelligentBatchCompanies(
-        activeVerticalNames,
-        criteria,
-        inventory,
-        8,
-      );
-    }
+    if (candidates.length === 0)
+      researchLog("info", "research_no_evidence_backed_candidates", {
+        runId,
+        sourceCount: uniqueResults.length,
+        providerErrors,
+      });
 
     await updateResearchRunMetadata(runId, {
       stage: "persisting",
@@ -317,6 +363,7 @@ export async function runDailyResearch(
       runId,
       criteria,
     );
+    const queued = kind === "daily" ? await buildDailyLeadQueue(date) : 0;
     const durationMs = Date.now() - started;
     await db
       .update(researchRuns)
@@ -344,6 +391,7 @@ export async function runDailyResearch(
       durationMs,
       created: persisted.created,
       duplicateCount: persisted.duplicateCount,
+      queued,
       provider: providerName,
     });
     return {

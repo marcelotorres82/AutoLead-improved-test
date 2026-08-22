@@ -5,7 +5,6 @@ import { getDb } from "@/db";
 import { researchRuns } from "@/db/schema";
 import { env } from "@/lib/env";
 import { buildLeadSearchQueries } from "@/lib/lead-domain";
-import { generateIntelligentMultiAiLeads } from "@/lib/lead-intelligence";
 import {
   getLeadResearchContexts,
   listExistingLeadIdentities,
@@ -49,12 +48,14 @@ export async function runLeadResearch(runId: string, companyId: string) {
       throw new Error("A empresa precisa estar aprovada para pesquisar leads");
 
     const aiProviders = configuredAiProviders();
-    const providerName = aiProviders.length > 0
-      ? `multi-search+${aiProviders[0].provider.name}`
-      : "multi-ai (gemini+chatgpt+perplexity)";
-    const modelName = aiProviders.length > 0
-      ? aiProviders[0].model
-      : "gemini-flash · gpt-5 · perplexity-sonar";
+    const providerName =
+      aiProviders.length > 0
+        ? `multi-search+${aiProviders[0].provider.name}`
+        : "multi-ai (gemini+chatgpt+perplexity)";
+    const modelName =
+      aiProviders.length > 0
+        ? aiProviders[0].model
+        : "gemini-flash · gpt-5 · perplexity-sonar";
 
     await db
       .update(researchRuns)
@@ -107,7 +108,11 @@ export async function runLeadResearch(runId: string, companyId: string) {
     // 1. Tentar executar IAs com chave configurada
     for (const ai of aiProviders) {
       try {
-        const aiLeads = await ai.provider.analyzeLeads(results, context, existing);
+        const aiLeads = await ai.provider.analyzeLeads(
+          results,
+          context,
+          existing,
+        );
         if (aiLeads && aiLeads.length > 0) {
           candidates = [...candidates, ...aiLeads];
         }
@@ -116,12 +121,6 @@ export async function runLeadResearch(runId: string, companyId: string) {
           `${ai.provider.name}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-    }
-
-    // 2. Se não houver chaves de API ou para enriquecer o volume para 12-18+ personas de alto nível
-    if (candidates.length < 10) {
-      const syntheticLeads = generateIntelligentMultiAiLeads(context, results, 16);
-      candidates = [...candidates, ...syntheticLeads];
     }
 
     await updateResearchRunMetadata(runId, {

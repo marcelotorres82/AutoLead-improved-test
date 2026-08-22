@@ -5,6 +5,7 @@ import {
   findDuplicate,
   normalizeDomain,
   normalizeName,
+  nameSimilarity,
   lushaMetrics,
   countsTowardGoal,
   aiBatchResultSchema,
@@ -24,6 +25,10 @@ describe("normalização", () => {
     ));
   it("normaliza nome e razão social", () =>
     expect(normalizeName("Árvore Digital Ltda.")).toBe("arvore digital"));
+  it("identifica variações de nome por similaridade conservadora", () =>
+    expect(
+      nameSimilarity("Companhia Digital Brasil", "Compania Digital Brasil"),
+    ).toBeGreaterThanOrEqual(0.85));
 });
 describe("score", () =>
   it("soma componentes validados", () =>
@@ -113,7 +118,8 @@ describe("Validação de Core Business e Exclusão de Setores", () => {
   it("rejeita explicitamente empresas do setor financeiro, adquirentes e bancos", () => {
     const stone = isForbiddenSectorCompany({
       name: "Stone Pagamentos S.A.",
-      coreBusiness: "Adquirência, maquininhas de cartão e soluções de pagamento para lojistas",
+      coreBusiness:
+        "Adquirência, maquininhas de cartão e soluções de pagamento para lojistas",
     });
     expect(stone.forbidden).toBe(true);
 
@@ -148,15 +154,16 @@ describe("Validação de Core Business e Exclusão de Setores", () => {
     const retail = isForbiddenSectorCompany({
       name: "Magalu Digital",
       tradeName: "Magalu",
-      coreBusiness: "Comércio varejista omnichannel e venda de bens de consumo pela internet",
+      coreBusiness:
+        "Comércio varejista omnichannel e venda de bens de consumo pela internet",
     });
     expect(retail.forbidden).toBe(false);
 
     const itConsulting = isForbiddenSectorCompany({
       name: "CI&T Software",
-      coreBusiness: "Desenvolvimento e consultoria especializada em engenharia de software e transformação digital",
+      coreBusiness:
+        "Desenvolvimento e consultoria especializada em engenharia de software e transformação digital",
     });
     expect(itConsulting.forbidden).toBe(false);
   });
 });
-

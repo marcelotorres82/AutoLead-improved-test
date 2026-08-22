@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CompanyStatus } from "@/lib/domain";
+import { scoreLabel } from "@/lib/evidence-intelligence";
 export function CompanyTable() {
   const { companies, updateStatus, enqueueLeadResearch } = useDemoStore();
   const [query, setQuery] = useState("");
@@ -161,7 +162,7 @@ export function CompanyTable() {
         </div>
       </div>
       <div className="overflow-x-auto rounded-xl border bg-white dark:bg-slate-900">
-        <table className="w-full min-w-[1000px] text-left text-sm">
+        <table className="w-full min-w-[1320px] text-left text-sm">
           <thead className="border-b bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-800">
             <tr>
               <th className="p-4">
@@ -191,7 +192,11 @@ export function CompanyTable() {
               <th className="p-4">Vertical</th>
               <th className="p-4">LinkedIn</th>
               <th className="p-4">Solução</th>
-              <th className="p-4">Score</th>
+              <th className="p-4">Opportunity</th>
+              <th className="p-4">Confidence</th>
+              <th className="p-4">WAAP</th>
+              <th className="p-4">API Sec</th>
+              <th className="p-4">Guardicore</th>
               <th className="p-4">Status</th>
               <th className="p-4 text-right">Ações rápidas</th>
             </tr>
@@ -268,11 +273,37 @@ export function CompanyTable() {
                   <Badge>{c.solution}</Badge>
                 </td>
                 <td className="p-4">
-                  <strong>{c.score}</strong>
-                  <span className="text-slate-400">/100</span>
+                  <strong>{c.opportunityScore ?? c.score}</strong>
+                  <p className="text-xs text-slate-500">
+                    {scoreLabel(c.opportunityScore ?? c.score)}
+                  </p>
                 </td>
                 <td className="p-4">
-                  <Badge>{c.status}</Badge>
+                  <strong>{c.confidenceScore ?? 0}</strong>
+                  <p className="text-xs text-slate-500">
+                    {scoreLabel(c.confidenceScore ?? 0)}
+                  </p>
+                </td>
+                <td className="p-4">
+                  <strong>{c.waapScore}</strong>
+                  <p className="text-xs text-slate-500">
+                    {scoreLabel(c.waapScore)}
+                  </p>
+                </td>
+                <td className="p-4">
+                  <strong>{c.apiScore}</strong>
+                  <p className="text-xs text-slate-500">
+                    {scoreLabel(c.apiScore)}
+                  </p>
+                </td>
+                <td className="p-4">
+                  <strong>{c.guardicoreScore}</strong>
+                  <p className="text-xs text-slate-500">
+                    {scoreLabel(c.guardicoreScore)}
+                  </p>
+                </td>
+                <td className="p-4">
+                  <Badge>{c.qualificationStatus ?? c.status}</Badge>
                 </td>
                 <td className="p-4">
                   <div className="flex justify-end gap-1">

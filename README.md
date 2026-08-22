@@ -10,6 +10,9 @@ Aplicação web single-user para pesquisar, triar e priorizar empresas antes da 
 - Taxonomia fechada de nove verticais e suas subverticais, classificada pelo core business com fonte e justificativa obrigatórias.
 - Vercel Blob privado para backups JSON; Vercel Cron para pesquisa nos dias úteis.
 - Vitest para domínio e Playwright para fluxos essenciais.
+- Pipeline evidence-first com sinais técnicos determinísticos, scores independentes, evidence gate, fila diária e cooldown de 90 dias.
+
+A documentação do Prospect Radar 2.0 está em `docs/architecture.md`, `docs/research-pipeline.md`, `docs/scoring.md`, `docs/evidence-model.md`, `docs/providers.md`, `docs/deployment.md` e no plano incremental `docs/prospect-radar-2-migration-plan.md`.
 
 Server Components fazem leituras; mutações interativas usam endpoints/ações autenticados; integrações ficam em adaptadores de servidor (`src/lib/providers`). `getDb()` inicializa Neon de forma lazy, portanto o build não depende de `DATABASE_URL`. Sem segredos, o app funciona com empresas e fontes fictícias claramente marcadas.
 
@@ -28,20 +31,23 @@ Abra `http://localhost:3000`. Em desenvolvimento sem autenticação configurada,
 
 ## Variáveis de ambiente
 
-| Variável                | Uso                                            |
-| ----------------------- | ---------------------------------------------- |
-| `DATABASE_URL`          | String de conexão Neon (somente servidor)      |
-| `TAVILY_API_KEY`        | Busca pública                                  |
-| `GEMINI_API_KEY`        | Análise estruturada principal                  |
-| `GEMINI_MODEL`          | Modelo, padrão `gemini-3.1-flash-lite`         |
-| `OPENAI_API_KEY`        | Fallback opcional para análise                 |
-| `OPENAI_MODEL`          | Modelo OpenAI, padrão `gpt-5-mini`             |
-| `CRON_SECRET`           | Segredo aleatório com pelo menos 24 caracteres |
-| `BLOB_READ_WRITE_TOKEN` | Vercel Blob privado                            |
-| `AUTH_SECRET`           | Segredo de sessão com pelo menos 32 caracteres |
-| `ADMIN_EMAIL`           | E-mail administrativo                          |
-| `ADMIN_PASSWORD_HASH`   | Hash bcrypt; nunca senha pura                  |
-| `NEXT_PUBLIC_APP_URL`   | Origem canônica, sem barra final               |
+| Variável                | Uso                                                           |
+| ----------------------- | ------------------------------------------------------------- |
+| `DATABASE_URL`          | String de conexão Neon (somente servidor)                     |
+| `TAVILY_API_KEY`        | Busca pública                                                 |
+| `GEMINI_API_KEY`        | Análise estruturada principal                                 |
+| `GEMINI_MODEL`          | Modelo, padrão `gemini-3.1-flash-lite`                        |
+| `OPENAI_API_KEY`        | Fallback opcional para análise                                |
+| `OPENAI_MODEL`          | Modelo OpenAI, padrão `gpt-5-mini`                            |
+| `LLM_PROVIDER`          | Provider preferido: `auto`, `gemini`, `anthropic` ou `openai` |
+| `LLM_MODEL`             | Override opcional do modelo do provider escolhido             |
+| `RESEARCH_DEBUG`        | Logs estruturados de diagnóstico, sem secrets                 |
+| `CRON_SECRET`           | Segredo aleatório com pelo menos 24 caracteres                |
+| `BLOB_READ_WRITE_TOKEN` | Vercel Blob privado                                           |
+| `AUTH_SECRET`           | Segredo de sessão com pelo menos 32 caracteres                |
+| `ADMIN_EMAIL`           | E-mail administrativo                                         |
+| `ADMIN_PASSWORD_HASH`   | Hash bcrypt; nunca senha pura                                 |
+| `NEXT_PUBLIC_APP_URL`   | Origem canônica, sem barra final                              |
 
 Gere segredos com `openssl rand -base64 32`. Gere o hash da senha:
 

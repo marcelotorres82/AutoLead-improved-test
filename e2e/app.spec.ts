@@ -50,10 +50,11 @@ test("pesquisa e revisão de leads sem consumir integrações", async ({
   await expect(page.getByText("1 pesquisa de leads iniciada")).toBeVisible();
 
   await page.goto("/personas");
-  await expect(page.getByText("Decisor Exemplo 1")).toBeVisible();
   const candidate = page
     .getByRole("article")
-    .filter({ hasText: "Decisor Exemplo 1" });
+    .filter({ hasText: "Decisor" })
+    .first();
+  await expect(candidate).toBeVisible();
   await expect(candidate.getByText("Pendente de validação")).toBeVisible();
   await candidate.getByRole("button", { name: "Aprovar" }).click();
   await expect(candidate.getByText("Aprovado")).toBeVisible();

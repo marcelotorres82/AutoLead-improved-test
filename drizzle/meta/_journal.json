@@ -22,6 +22,13 @@
       "when": 1787011276449,
       "tag": "0002_spotty_metal_master",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787432585676,
+      "tag": "0003_faulty_norrin_radd",
+      "breakpoints": true
     }
   ]
 }

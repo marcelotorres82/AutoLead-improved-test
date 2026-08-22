@@ -6,10 +6,18 @@ export async function executeResearchStep(
   date: string,
   kind: string,
   criteria?: string,
+  forceRefresh = false,
 ) {
   "use step";
   try {
-    const result = await runDailyResearch(date, false, kind, criteria, runId);
+    const result = await runDailyResearch(
+      date,
+      false,
+      kind,
+      criteria,
+      runId,
+      forceRefresh,
+    );
     return {
       status: result.status,
       created: result.created,

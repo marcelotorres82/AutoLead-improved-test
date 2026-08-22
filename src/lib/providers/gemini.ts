@@ -6,7 +6,7 @@ import {
   normalizeDomain,
   normalizeName,
 } from "@/lib/domain";
-import { env } from "@/lib/env";
+import { env, llmModelFor } from "@/lib/env";
 import {
   aiLeadAnalysisSchema,
   type LeadResearchContext,
@@ -144,7 +144,7 @@ export class GeminiAiProvider implements AiProvider {
     criteria?: string,
     inventory: CompanyInventoryItem[] = [],
   ) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(llmModelFor("gemini", env.GEMINI_MODEL))}:generateContent`;
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -202,7 +202,7 @@ export class GeminiAiProvider implements AiProvider {
   ) {
     const apiKey = env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("GEMINI_API_KEY não configurada");
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(env.GEMINI_MODEL)}:generateContent`;
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(llmModelFor("gemini", env.GEMINI_MODEL))}:generateContent`;
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {

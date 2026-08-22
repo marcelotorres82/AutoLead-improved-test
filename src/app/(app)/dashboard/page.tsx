@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { countsTowardGoal, dateInSaoPaulo, lushaMetrics } from "@/lib/domain";
+import { scoreLabel } from "@/lib/evidence-intelligence";
 export default function Dashboard() {
   const { companies, lushaUsed, generate, demoMode } = useDemoStore();
   const [isResearching, setIsResearching] = useState(false);
@@ -188,34 +189,70 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <div className="mt-5 grid gap-5">
         <Card>
           <CardHeader>
-            <CardTitle>Empresas com maior score</CardTitle>
+            <CardTitle>Radar do Dia</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
-            {companies
-              .slice()
-              .sort((a, b) => b.score - a.score)
-              .slice(0, 4)
-              .map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/companies/${c.id}`}
-                  className="flex items-center justify-between rounded-lg border p-3 hover:bg-slate-50 dark:hover:bg-slate-800"
-                >
-                  <div>
-                    <p className="text-sm font-semibold">{c.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {c.vertical} · {c.solution}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge>{c.score}/100</Badge>
-                    <ArrowRight className="size-4" />
-                  </div>
-                </Link>
-              ))}
+          <CardContent className="overflow-x-auto">
+            <table className="w-full min-w-[1050px] text-left text-sm">
+              <thead className="border-b text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="p-3">Empresa</th>
+                  <th className="p-3">Vertical</th>
+                  <th className="p-3">Opportunity</th>
+                  <th className="p-3">Confidence</th>
+                  <th className="p-3">WAAP</th>
+                  <th className="p-3">API Sec</th>
+                  <th className="p-3">Guardicore</th>
+                  <th className="p-3">Solução</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {companies
+                  .filter((company) =>
+                    demoMode ? true : company.qualificationStatus === "READY",
+                  )
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      (b.opportunityScore ?? b.score) -
+                      (a.opportunityScore ?? a.score),
+                  )
+                  .slice(0, 30)
+                  .map((c) => (
+                    <tr key={c.id} className="border-b last:border-0">
+                      <td className="p-3 font-semibold">{c.name}</td>
+                      <td className="p-3">{c.vertical}</td>
+                      <td className="p-3">
+                        {c.opportunityScore ?? c.score}
+                        <span className="ml-1 text-xs text-slate-500">
+                          {scoreLabel(c.opportunityScore ?? c.score)}
+                        </span>
+                      </td>
+                      <td className="p-3">{c.confidenceScore ?? 0}</td>
+                      <td className="p-3">{c.waapScore}</td>
+                      <td className="p-3">{c.apiScore}</td>
+                      <td className="p-3">{c.guardicoreScore}</td>
+                      <td className="p-3">
+                        <Badge>{c.solution}</Badge>
+                      </td>
+                      <td className="p-3">
+                        <Badge>{c.qualificationStatus ?? "DEMO"}</Badge>
+                      </td>
+                      <td className="p-3">
+                        <Button asChild size="sm" variant="ghost">
+                          <Link href={`/companies/${c.id}`}>
+                            Abrir <ArrowRight className="size-4" />
+                          </Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
           </CardContent>
         </Card>
         <Card>

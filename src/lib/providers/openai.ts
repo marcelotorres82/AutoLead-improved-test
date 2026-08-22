@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { aiBatchAnalysisSchema } from "@/lib/domain";
-import { env } from "@/lib/env";
+import { env, llmModelFor } from "@/lib/env";
 import { aiLeadAnalysisSchema } from "@/lib/lead-domain";
 import { leadResearchSystemInstruction } from "@/lib/lead-research-prompt";
 import type {
@@ -26,7 +26,7 @@ export class OpenAiProvider implements AiProvider {
       maxRetries: 2,
     });
     const response = await client.responses.parse({
-      model: env.OPENAI_MODEL,
+      model: llmModelFor("openai", env.OPENAI_MODEL),
       input: [
         {
           role: "system",
@@ -58,7 +58,7 @@ export class OpenAiProvider implements AiProvider {
       maxRetries: 2,
     });
     const response = await client.responses.parse({
-      model: env.OPENAI_MODEL,
+      model: llmModelFor("openai", env.OPENAI_MODEL),
       input: [
         { role: "system", content: leadResearchSystemInstruction(context) },
         {

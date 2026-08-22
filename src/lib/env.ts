@@ -10,6 +10,11 @@ const envSchema = z.object({
   PERPLEXITY_MODEL: z.string().default("sonar"),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_MODEL: z.string().default("gpt-5-mini"),
+  LLM_PROVIDER: z
+    .enum(["auto", "gemini", "anthropic", "openai"])
+    .default("auto"),
+  LLM_MODEL: z.string().min(1).optional(),
+  RESEARCH_DEBUG: z.enum(["true", "false"]).default("false"),
   CRON_SECRET: z.string().min(24).optional(),
   BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
   AUTH_SECRET: z.string().min(32).optional(),
@@ -28,6 +33,9 @@ export const env = envSchema.parse({
   PERPLEXITY_MODEL: process.env.PERPLEXITY_MODEL,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY || undefined,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  LLM_PROVIDER: process.env.LLM_PROVIDER,
+  LLM_MODEL: process.env.LLM_MODEL || undefined,
+  RESEARCH_DEBUG: process.env.RESEARCH_DEBUG,
   CRON_SECRET: process.env.CRON_SECRET || undefined,
   BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN || undefined,
   AUTH_SECRET: process.env.AUTH_SECRET || undefined,
@@ -40,6 +48,14 @@ export const demoMode = !(
   env.TAVILY_API_KEY &&
   (env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY || env.OPENAI_API_KEY)
 );
+export function llmModelFor(
+  provider: "gemini" | "anthropic" | "openai",
+  fallback: string,
+) {
+  return env.LLM_PROVIDER === provider && env.LLM_MODEL
+    ? env.LLM_MODEL
+    : fallback;
+}
 export function integrationStatus() {
   return {
     database: Boolean(env.DATABASE_URL),

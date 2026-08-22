@@ -7,9 +7,12 @@ import {
   companyAliases,
   companyEvidence,
   companyStatusHistory,
+  opportunityScores,
   researchRunCompanies,
   solutionScores,
+  sdrIntelligence,
   sources,
+  technicalSignals,
   users,
   verticals,
 } from "@/db/schema";
@@ -30,6 +33,14 @@ import {
   type CompanyStatus,
   type ScoreBreakdown,
 } from "@/lib/domain";
+import {
+  buildEvidenceRecord,
+  calculateEvidenceFirstScores,
+  detectTechnicalSignals,
+  passesEvidenceGate,
+  recommendedSolutionFromScores,
+} from "@/lib/evidence-intelligence";
+import { SDRIntelligenceEngine } from "@/lib/prospect-pipeline";
 import { env } from "@/lib/env";
 import type { SearchResult } from "@/lib/providers/types";
 import type { CompanyInventoryItem } from "@/lib/providers/types";
@@ -104,17 +115,26 @@ export async function listCompanies(): Promise<Company[]> {
     .limit(500);
   if (!rows.length) return [];
   const ids = rows.map(({ company }) => company.id);
-  const [evidenceRows, scoreRows] = await Promise.all([
-    db
-      .select({ evidence: companyEvidence, source: sources })
-      .from(companyEvidence)
-      .innerJoin(sources, eq(companyEvidence.sourceId, sources.id))
-      .where(inArray(companyEvidence.companyId, ids)),
-    db
-      .select()
-      .from(solutionScores)
-      .where(inArray(solutionScores.companyId, ids)),
-  ]);
+  const [evidenceRows, scoreRows, opportunityRows, signalRows] =
+    await Promise.all([
+      db
+        .select({ evidence: companyEvidence, source: sources })
+        .from(companyEvidence)
+        .innerJoin(sources, eq(companyEvidence.sourceId, sources.id))
+        .where(inArray(companyEvidence.companyId, ids)),
+      db
+        .select()
+        .from(solutionScores)
+        .where(inArray(solutionScores.companyId, ids)),
+      db
+        .select()
+        .from(opportunityScores)
+        .where(inArray(opportunityScores.companyId, ids)),
+      db
+        .select()
+        .from(technicalSignals)
+        .where(inArray(technicalSignals.companyId, ids)),
+    ]);
   const evidenceByCompany = new Map<string, typeof evidenceRows>();
   for (const row of evidenceRows) {
     const items = evidenceByCompany.get(row.evidence.companyId) ?? [];
@@ -126,6 +146,15 @@ export async function listCompanies(): Promise<Company[]> {
     const values = scoresByCompany.get(score.companyId) ?? new Map();
     values.set(score.solution, score.score);
     scoresByCompany.set(score.companyId, values);
+  }
+  const opportunityByCompany = new Map(
+    opportunityRows.map((row) => [row.companyId, row]),
+  );
+  const signalsByCompany = new Map<string, typeof signalRows>();
+  for (const signal of signalRows) {
+    const items = signalsByCompany.get(signal.companyId) ?? [];
+    items.push(signal);
+    signalsByCompany.set(signal.companyId, items);
   }
 
   return rows.map(({ company, vertical }) => {
@@ -141,6 +170,7 @@ export async function listCompanies(): Promise<Company[]> {
       ).values(),
     );
     const scores = scoresByCompany.get(company.id) ?? new Map();
+    const evidenceFirst = opportunityByCompany.get(company.id);
     const valuesByKind = (kind: string) =>
       companyEvidenceRows
         .filter(({ evidence }) => evidence.kind === kind)
@@ -177,6 +207,42 @@ export async function listCompanies(): Promise<Company[]> {
       confirmedFacts: valuesByKind("fact"),
       commercialSignals: valuesByKind("signal"),
       hypotheses: valuesByKind("hypothesis"),
+      evidenceDetails: companyEvidenceRows.map(({ evidence, source }) => ({
+        id: evidence.id,
+        type: evidence.evidenceType,
+        statementKind: evidence.statementKind as
+          "FACT" | "INFERENCE" | "UNKNOWN",
+        claim: evidence.content,
+        sourceUrl: source.url,
+        sourceTitle: source.title,
+        publisher: source.domain,
+        publishedAt: source.publishedAt?.toISOString(),
+        collectedAt: evidence.collectedAt.toISOString(),
+        excerpt: evidence.excerpt ?? undefined,
+        confidence: evidence.confidence,
+        sourceQuality: evidence.sourceQuality,
+        freshnessScore: evidence.freshnessScore,
+        verified: evidence.verified,
+        relevantSolutions: (evidence.relevantSolutions ?? []).filter(
+          (value): value is "API Security" | "WAAP" | "Guardicore" =>
+            ["API Security", "WAAP", "Guardicore"].includes(value),
+        ),
+      })),
+      technicalSignals: (signalsByCompany.get(company.id) ?? []).map(
+        (signal) => ({
+          type: signal.type,
+          value: signal.value,
+          sourceUrl: signal.sourceUrl,
+          detectionMethod: signal.detectionMethod,
+          confidence: signal.confidence,
+          detectedAt: signal.detectedAt.toISOString(),
+        }),
+      ),
+      digitalExposureScore: evidenceFirst?.digitalExposureScore ?? 0,
+      confidenceScore: evidenceFirst?.confidenceScore ?? 0,
+      opportunityScore: evidenceFirst?.opportunityScore ?? company.score,
+      qualificationStatus:
+        company.qualificationStatus === "READY" ? "READY" : "NEEDS_RESEARCH",
       sources: uniqueSources.map((source) => ({
         id: source.id,
         title: source.title,
@@ -284,6 +350,34 @@ export async function persistAnalyzedCompanies(
       candidate.linkedinUrl,
       resultByUrl.keys(),
     );
+    const evidenceRecords = validEvidence.map((item) =>
+      buildEvidenceRecord({
+        claim: item.content,
+        kind: item.kind,
+        result: resultByUrl.get(item.sourceUrl)!,
+        companyDomain: domain,
+      }),
+    );
+    const companySignals = detectTechnicalSignals(
+      Array.from(
+        new Map(
+          validEvidence.map((item) => {
+            const result = resultByUrl.get(item.sourceUrl)!;
+            return [result.url, result];
+          }),
+        ).values(),
+      ),
+    );
+    const evidenceScores = calculateEvidenceFirstScores(
+      evidenceRecords,
+      companySignals,
+    );
+    const recommendedSolution = recommendedSolutionFromScores(evidenceScores);
+    const gate = passesEvidenceGate(
+      evidenceScores,
+      evidenceRecords,
+      recommendedSolution,
+    );
     const [inserted] = await db
       .insert(companies)
       .values({
@@ -301,10 +395,11 @@ export async function persistAnalyzedCompanies(
         employeeRange: candidate.employees || null,
         linkedinUrl: linkedinUrl ?? null,
         description: candidate.description,
-        suggestedSolution: candidate.solution,
+        suggestedSolution: recommendedSolution,
         score: calculateScore(breakdown),
         recommendation: candidate.recommendation,
         status: "Nova",
+        qualificationStatus: gate.status,
         possibleDuplicate: duplicate.possible,
         demo: false,
         analysisMetadata: metadata,
@@ -330,25 +425,56 @@ export async function persistAnalyzedCompanies(
       {
         companyId: inserted.id,
         solution: "API Security",
-        score: candidate.apiScore,
+        score: evidenceScores.apiSecurityScore,
         breakdown,
       },
       {
         companyId: inserted.id,
         solution: "WAAP",
-        score: candidate.waapScore,
+        score: evidenceScores.waapScore,
         breakdown,
       },
       {
         companyId: inserted.id,
         solution: "Guardicore",
-        score: candidate.guardicoreScore,
+        score: evidenceScores.guardicoreScore,
         breakdown,
       },
     ]);
 
-    for (const item of validEvidence) {
+    await db.insert(opportunityScores).values({
+      companyId: inserted.id,
+      digitalExposureScore: evidenceScores.digitalExposureScore,
+      waapScore: evidenceScores.waapScore,
+      apiSecurityScore: evidenceScores.apiSecurityScore,
+      guardicoreScore: evidenceScores.guardicoreScore,
+      confidenceScore: evidenceScores.confidenceScore,
+      opportunityScore: evidenceScores.opportunityScore,
+      evidenceCount: evidenceScores.evidenceCount,
+      independentSourceCount: evidenceScores.independentSourceCount,
+      algorithmVersion: evidenceScores.algorithmVersion,
+      breakdown: { gate: gate.reasons },
+    });
+
+    if (companySignals.length)
+      await db.insert(technicalSignals).values(
+        companySignals.map((signal) => ({
+          companyId: inserted.id,
+          type: signal.type,
+          value: signal.value,
+          sourceUrl: signal.sourceUrl,
+          detectionMethod: signal.detectionMethod,
+          confidence: signal.confidence,
+          detectedAt: new Date(signal.detectedAt),
+        })),
+      );
+
+    const persistedEvidence: Array<
+      (typeof evidenceRecords)[number] & { id: string }
+    > = [];
+    for (const [index, item] of validEvidence.entries()) {
       const search = resultByUrl.get(item.sourceUrl)!;
+      const evidenceRecord = evidenceRecords[index];
       let [source] = await db
         .insert(sources)
         .values({
@@ -369,14 +495,48 @@ export async function persistAnalyzedCompanies(
           .where(eq(sources.url, search.url))
           .limit(1);
       }
-      if (source)
-        await db.insert(companyEvidence).values({
-          companyId: inserted.id,
-          sourceId: source.id,
-          kind: item.kind,
-          content: item.content,
-        });
+      if (source) {
+        const [savedEvidence] = await db
+          .insert(companyEvidence)
+          .values({
+            companyId: inserted.id,
+            sourceId: source.id,
+            kind: item.kind,
+            content: item.content,
+            evidenceType: evidenceRecord.type,
+            statementKind: evidenceRecord.statementKind,
+            excerpt: evidenceRecord.excerpt,
+            confidence: evidenceRecord.confidence,
+            sourceQuality: evidenceRecord.sourceQuality,
+            freshnessScore: evidenceRecord.freshnessScore,
+            verified: evidenceRecord.verified,
+            relevantSolutions: evidenceRecord.relevantSolutions,
+            collectedAt: new Date(evidenceRecord.collectedAt),
+          })
+          .returning({ id: companyEvidence.id });
+        if (savedEvidence)
+          persistedEvidence.push({ ...evidenceRecord, id: savedEvidence.id });
+      }
     }
+    const sdr = new SDRIntelligenceEngine().interpret({
+      solution: recommendedSolution,
+      evidence: persistedEvidence,
+      confidence: evidenceScores.confidenceScore,
+    });
+    if (sdr)
+      await db.insert(sdrIntelligence).values({
+        companyId: inserted.id,
+        researchRunId: runId,
+        recommendedSolution: sdr.recommendedSolution,
+        whyNow: sdr.whyNow,
+        callOpening: sdr.callOpening,
+        discoveryQuestions: sdr.discoveryQuestions,
+        likelyChallenges: sdr.likelyChallenges,
+        relevantEvidenceIds: sdr.relevantEvidenceIds,
+        recommendedPersonas: sdr.recommendedPersonas,
+        hypothesis: sdr.hypothesis,
+        confidence: sdr.confidence,
+      });
     await db.insert(researchRunCompanies).values({
       runId,
       companyId: inserted.id,

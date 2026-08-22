@@ -2,7 +2,7 @@ import "server-only";
 
 import Anthropic from "@anthropic-ai/sdk";
 import { aiBatchAnalysisSchema } from "@/lib/domain";
-import { env } from "@/lib/env";
+import { env, llmModelFor } from "@/lib/env";
 import {
   aiLeadAnalysisSchema,
   type LeadResearchContext,
@@ -37,7 +37,10 @@ export class ClaudeAiProvider implements AiProvider {
 
     try {
       const response = await client.messages.create({
-        model: env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022",
+        model: llmModelFor(
+          "anthropic",
+          env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022",
+        ),
         max_tokens: 16000,
         system: researchSystemInstruction(),
         messages: [
@@ -83,7 +86,10 @@ export class ClaudeAiProvider implements AiProvider {
 
     try {
       const response = await client.messages.create({
-        model: env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022",
+        model: llmModelFor(
+          "anthropic",
+          env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022",
+        ),
         max_tokens: 8000,
         system: leadResearchSystemInstruction(context),
         messages: [

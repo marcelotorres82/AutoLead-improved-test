@@ -128,6 +128,43 @@ export const companySchema = z.object({
   confirmedFacts: z.array(z.string()),
   commercialSignals: z.array(z.string()),
   hypotheses: z.array(z.string()),
+  evidenceDetails: z
+    .array(
+      z.object({
+        id: z.string(),
+        type: z.string(),
+        statementKind: z.enum(["FACT", "INFERENCE", "UNKNOWN"]),
+        claim: z.string(),
+        sourceUrl: z.string().url(),
+        sourceTitle: z.string().optional(),
+        publisher: z.string().optional(),
+        publishedAt: z.string().optional(),
+        collectedAt: z.string(),
+        excerpt: z.string().optional(),
+        confidence: z.number().min(0).max(100),
+        sourceQuality: z.number().min(0).max(100),
+        freshnessScore: z.number().min(0).max(100),
+        verified: z.boolean(),
+        relevantSolutions: z.array(z.enum(solutions)),
+      }),
+    )
+    .optional(),
+  technicalSignals: z
+    .array(
+      z.object({
+        type: z.string(),
+        value: z.string(),
+        sourceUrl: z.string().url(),
+        detectionMethod: z.string(),
+        confidence: z.number().min(0).max(100),
+        detectedAt: z.string(),
+      }),
+    )
+    .optional(),
+  digitalExposureScore: z.number().min(0).max(100).optional(),
+  confidenceScore: z.number().min(0).max(100).optional(),
+  opportunityScore: z.number().min(0).max(100).optional(),
+  qualificationStatus: z.enum(["NEEDS_RESEARCH", "READY"]).optional(),
   sources: z.array(sourceSchema),
   titles: z.array(z.string()),
   navigatorQuery: z.string(),
@@ -232,6 +269,28 @@ export function normalizeName(value: string): string {
     .replace(/\s+/g, " ");
 }
 
+export function nameSimilarity(left: string, right: string) {
+  const a = normalizeName(left);
+  const b = normalizeName(right);
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= a.length; row += 1) {
+    let diagonal = previous[0];
+    previous[0] = row;
+    for (let column = 1; column <= b.length; column += 1) {
+      const above = previous[column];
+      previous[column] = Math.min(
+        previous[column] + 1,
+        previous[column - 1] + 1,
+        diagonal + (a[row - 1] === b[column - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return 1 - previous[b.length] / Math.max(a.length, b.length);
+}
+
 export function verifiedLinkedInCompanyUrl(
   candidate: string,
   sourceUrls: Iterable<string>,
@@ -285,7 +344,9 @@ export function findDuplicate(
     return (
       name.length > 5 &&
       other.length > 5 &&
-      (name.includes(other) || other.includes(name))
+      (name.includes(other) ||
+        other.includes(name) ||
+        nameSimilarity(name, other) >= 0.85)
     );
   });
   return { duplicate: false, possible: Boolean(possible), match: possible };
@@ -307,24 +368,107 @@ export function lushaMetrics(used: number, limit: number) {
 }
 
 export const forbiddenBrandNames = new Set([
-  "stone", "stone pagamentos", "pagseguro", "pagbank", "cielo", "getnet", "rede",
-  "asaas", "infinitepay", "ebanx", "nubank", "picpay", "c6 bank", "c6", "banco inter",
-  "inter & co", "inter co", "banco do brasil", "bradesco", "itau", "itau unibanco",
-  "itaú", "santander", "btg", "btg pactual", "banco pan", "safra", "banco safra",
-  "original", "banco original", "neon", "neon pagamentos", "mercado pago", "zoop",
-  "stelo", "vindi", "iugu", "recargapay", "dock", "fitbank", "porto seguro",
-  "sulamerica", "sulamérica", "tokio marine", "bradesco seguros", "xp", "xp investimentos",
-  "rico", "clear corretora", "guide investimentos", "fleury", "laboratorio fleury",
-  "laboratório fleury", "dasa", "rede d'or", "rede dor", "mater dei", "hapvida",
-  "notredame intermedica", "notredame intermédica", "einstein", "sírio-libanês",
-  "sirio libanes", "pague menos", "raiadrogasil", "droga raia", "drogasil",
-  "eurofarma", "ems", "gerdau", "csn", "usiminas", "vale", "petrobras", "raizen",
-  "raízen", "cosan", "jbs", "marfrig", "brf", "slc agricola", "slc agrícola",
-  "mrv", "cyrela", "tupy", "weg", "claro", "vivo", "tim", "oi", "embratel",
-  "algar telecom", "desktop internet", "brisanet", "unifique",
+  "stone",
+  "stone pagamentos",
+  "pagseguro",
+  "pagbank",
+  "cielo",
+  "getnet",
+  "rede",
+  "asaas",
+  "infinitepay",
+  "ebanx",
+  "nubank",
+  "picpay",
+  "c6 bank",
+  "c6",
+  "banco inter",
+  "inter & co",
+  "inter co",
+  "banco do brasil",
+  "bradesco",
+  "itau",
+  "itau unibanco",
+  "itaú",
+  "santander",
+  "btg",
+  "btg pactual",
+  "banco pan",
+  "safra",
+  "banco safra",
+  "original",
+  "banco original",
+  "neon",
+  "neon pagamentos",
+  "mercado pago",
+  "zoop",
+  "stelo",
+  "vindi",
+  "iugu",
+  "recargapay",
+  "dock",
+  "fitbank",
+  "porto seguro",
+  "sulamerica",
+  "sulamérica",
+  "tokio marine",
+  "bradesco seguros",
+  "xp",
+  "xp investimentos",
+  "rico",
+  "clear corretora",
+  "guide investimentos",
+  "fleury",
+  "laboratorio fleury",
+  "laboratório fleury",
+  "dasa",
+  "rede d'or",
+  "rede dor",
+  "mater dei",
+  "hapvida",
+  "notredame intermedica",
+  "notredame intermédica",
+  "einstein",
+  "sírio-libanês",
+  "sirio libanes",
+  "pague menos",
+  "raiadrogasil",
+  "droga raia",
+  "drogasil",
+  "eurofarma",
+  "ems",
+  "gerdau",
+  "csn",
+  "usiminas",
+  "vale",
+  "petrobras",
+  "raizen",
+  "raízen",
+  "cosan",
+  "jbs",
+  "marfrig",
+  "brf",
+  "slc agricola",
+  "slc agrícola",
+  "mrv",
+  "cyrela",
+  "tupy",
+  "weg",
+  "claro",
+  "vivo",
+  "tim",
+  "oi",
+  "embratel",
+  "algar telecom",
+  "desktop internet",
+  "brisanet",
+  "unifique",
 ]);
 
-export const forbiddenCoreBusinessRegexes: Array<{ category: string; regex: RegExp }> = [
+export const forbiddenCoreBusinessRegexes: Array<{
+  category: string;
+  regex: RegExp;
+}> = [
   {
     category: "Setor Financeiro / Meios de Pagamento / Fintechs",
     regex:
@@ -393,4 +537,3 @@ export function isForbiddenSectorCompany(company: {
 
   return { forbidden: false };
 }
-

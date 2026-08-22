@@ -74,6 +74,8 @@ export function ResearchRunList({ limit = 10 }: { limit?: number }) {
                 {run.researchType === "leads" ? "candidatos" : "novas"}
               </span>
               <span>{run.duplicateCount} repetidos</span>
+              <span>{run.searchCount} buscas</span>
+              <span>Custo estimado ${run.estimatedCost.toFixed(4)}</span>
               {run.durationMs ? (
                 <span>{(run.durationMs / 1000).toFixed(1)}s</span>
               ) : null}

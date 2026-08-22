@@ -1,5 +1,6 @@
 "use client";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import {
   CheckCircle2,
   Clipboard,
@@ -7,6 +8,7 @@ import {
   Lightbulb,
   Linkedin,
   Radio,
+  RefreshCw,
   ShieldCheck,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -15,9 +17,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { companyStatuses } from "@/lib/domain";
+import { scoreLabel } from "@/lib/evidence-intelligence";
 export default function CompanyDetail() {
   const { id } = useParams<{ id: string }>();
   const { companies, updateStatus } = useDemoStore();
+  const [researching, setResearching] = useState(false);
   const c = companies.find((item) => item.id === id);
   if (!c)
     return (
@@ -72,27 +76,64 @@ export default function CompanyDetail() {
             </a>
           ) : null}
         </div>
-        <select
-          aria-label="Alterar status"
-          className="h-10 rounded-lg border bg-white px-3 text-sm dark:bg-slate-900"
-          value={c.status}
-          onChange={async (e) => {
-            try {
-              await updateStatus(c.id, e.target.value as typeof c.status);
-              toast.success("Status atualizado");
-            } catch (error) {
-              toast.error(
-                error instanceof Error
-                  ? error.message
-                  : "Falha ao atualizar status",
-              );
-            }
-          }}
-        >
-          {companyStatuses.map((s) => (
-            <option key={s}>{s}</option>
-          ))}
-        </select>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            disabled={researching}
+            onClick={async () => {
+              setResearching(true);
+              try {
+                const response = await fetch("/api/research/manual", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    query: `${c.name} ${c.domain} notícias tecnologia expansão`,
+                    forceRefresh: true,
+                  }),
+                });
+                if (!response.ok)
+                  throw new Error("Falha ao iniciar nova pesquisa");
+                toast.success(
+                  "Nova pesquisa registrada; o histórico anterior foi preservado",
+                );
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Falha ao pesquisar novamente",
+                );
+              } finally {
+                setResearching(false);
+              }
+            }}
+          >
+            <RefreshCw
+              className={`size-4 ${researching ? "animate-spin" : ""}`}
+            />
+            {researching ? "Pesquisando…" : "Research Again"}
+          </Button>
+          <select
+            aria-label="Alterar status"
+            className="h-10 rounded-lg border bg-white px-3 text-sm dark:bg-slate-900"
+            value={c.status}
+            onChange={async (e) => {
+              try {
+                await updateStatus(c.id, e.target.value as typeof c.status);
+                toast.success("Status atualizado");
+              } catch (error) {
+                toast.error(
+                  error instanceof Error
+                    ? error.message
+                    : "Falha ao atualizar status",
+                );
+              }
+            }}
+          >
+            {companyStatuses.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </div>
       </div>
       <div className="grid gap-5 xl:grid-cols-3">
         <div className="space-y-5 xl:col-span-2">
@@ -187,30 +228,64 @@ export default function CompanyDetail() {
           </div>
           <Card>
             <CardHeader>
-              <CardTitle>Fontes e evidências</CardTitle>
+              <CardTitle>Evidências verificáveis</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {c.sources.map((s) => (
-                <div key={s.id} className="rounded-lg border p-4">
+              {(c.evidenceDetails?.length
+                ? c.evidenceDetails
+                : c.sources.map((source) => ({
+                    id: source.id,
+                    type: "other",
+                    statementKind: "FACT" as const,
+                    claim: source.summary,
+                    sourceUrl: source.url,
+                    sourceTitle: source.title,
+                    publisher: source.domain,
+                    collectedAt: source.accessedAt,
+                    excerpt: source.summary,
+                    confidence: 0,
+                    sourceQuality: 0,
+                    freshnessScore: 0,
+                    verified: false,
+                    relevantSolutions: [],
+                  }))
+              ).map((evidence) => (
+                <div key={evidence.id} className="rounded-lg border p-4">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="font-semibold">{s.title}</p>
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        <Badge>{evidence.statementKind}</Badge>
+                        <Badge>{evidence.type}</Badge>
+                        <Badge>
+                          {evidence.verified ? "Verificada" : "Revisar"}
+                        </Badge>
+                      </div>
+                      <p className="font-semibold">{evidence.claim}</p>
                       <p className="text-xs text-slate-500">
-                        {s.domain} · Acesso em {s.accessedAt}
+                        {evidence.publisher ?? "Fonte pública"} · Coletada em{" "}
+                        {evidence.collectedAt.slice(0, 10)}
                       </p>
                     </div>
                     <Button asChild variant="outline" size="sm">
-                      <a href={s.url} target="_blank" rel="noreferrer">
+                      <a
+                        href={evidence.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
                         Abrir
                         <ExternalLink className="size-3" />
                       </a>
                     </Button>
                   </div>
-                  <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
-                    {s.summary}
-                  </p>
-                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-                    Resumo editorial — não é citação literal da fonte.
+                  {evidence.excerpt ? (
+                    <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                      {evidence.excerpt}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-xs text-slate-500">
+                    Confiança {evidence.confidence}/100 · Fonte{" "}
+                    {evidence.sourceQuality}/100 · Frescor{" "}
+                    {evidence.freshnessScore}/100
                   </p>
                 </div>
               ))}
@@ -264,8 +339,10 @@ export default function CompanyDetail() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
-                Score geral{" "}
-                <span className="text-3xl text-cyan-600">{c.score}</span>
+                Opportunity{" "}
+                <span className="text-3xl text-cyan-600">
+                  {c.opportunityScore ?? c.score}
+                </span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -302,6 +379,17 @@ export default function CompanyDetail() {
                   <p>GC</p>
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-2 border-t pt-4 text-center text-xs">
+                <div>
+                  <strong>{c.confidenceScore ?? 0}</strong>
+                  <p>{scoreLabel(c.confidenceScore ?? 0)} confidence</p>
+                </div>
+                <div>
+                  <strong>{c.digitalExposureScore ?? 0}</strong>
+                  <p>{scoreLabel(c.digitalExposureScore ?? 0)} digital</p>
+                </div>
+              </div>
+              <Badge>{c.qualificationStatus ?? "NEEDS_RESEARCH"}</Badge>
             </CardContent>
           </Card>
         </aside>
