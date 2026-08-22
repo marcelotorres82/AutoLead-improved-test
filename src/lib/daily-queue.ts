@@ -7,8 +7,13 @@ import {
   dailyLeadQueue,
   opportunityScores,
   sdrIntelligence,
+  verticals,
 } from "@/db/schema";
-import { dateInSaoPaulo } from "@/lib/domain";
+import {
+  dateInSaoPaulo,
+  isForbiddenSectorCompany,
+  isValidVerticalClassification,
+} from "@/lib/domain";
 
 export type DailyQueueItem = {
   id: string;
@@ -23,6 +28,41 @@ export type DailyQueueItem = {
   whyNow?: string;
 };
 
+function isEligibleQueueCompany(company: {
+  name?: string;
+  companyName?: string;
+  tradeName: string | null;
+  domain: string | null;
+  vertical: string;
+  subsegment: string | null;
+  description: string | null;
+  analysisMetadata: unknown;
+}) {
+  const name = company.name ?? company.companyName;
+  if (!name) return false;
+  if (
+    !company.subsegment ||
+    !isValidVerticalClassification(company.vertical, company.subsegment)
+  )
+    return false;
+
+  const metadata =
+    company.analysisMetadata && typeof company.analysisMetadata === "object"
+      ? (company.analysisMetadata as Record<string, unknown>)
+      : {};
+  const text = (key: string) =>
+    typeof metadata[key] === "string" ? metadata[key] : undefined;
+
+  return !isForbiddenSectorCompany({
+    name,
+    tradeName: company.tradeName ?? undefined,
+    domain: company.domain ?? undefined,
+    coreBusiness: text("coreBusiness"),
+    description: company.description ?? undefined,
+    classificationReason: text("classificationReason"),
+  }).forbidden;
+}
+
 export async function buildDailyLeadQueue(
   date = dateInSaoPaulo(),
   limit = 30,
@@ -33,18 +73,27 @@ export async function buildDailyLeadQueue(
   const candidates = await db
     .select({
       companyId: companies.id,
+      name: companies.name,
+      tradeName: companies.tradeName,
+      domain: companies.domain,
       verticalId: companies.verticalId,
+      vertical: verticals.name,
+      subsegment: companies.subsegment,
+      description: companies.description,
+      analysisMetadata: companies.analysisMetadata,
       opportunityScore: opportunityScores.opportunityScore,
       confidenceScore: opportunityScores.confidenceScore,
       recommendedSolution: companies.suggestedSolution,
       whyNow: sdrIntelligence.whyNow,
     })
     .from(companies)
+    .innerJoin(verticals, eq(verticals.id, companies.verticalId))
     .innerJoin(opportunityScores, eq(opportunityScores.companyId, companies.id))
     .leftJoin(sdrIntelligence, eq(sdrIntelligence.companyId, companies.id))
     .where(
       and(
         isNull(companies.deletedAt),
+        eq(verticals.active, true),
         eq(companies.qualificationStatus, "READY"),
         or(isNull(companies.cooldownUntil), lte(companies.cooldownUntil, now)),
       ),
@@ -53,11 +102,12 @@ export async function buildDailyLeadQueue(
       desc(opportunityScores.opportunityScore),
       desc(opportunityScores.confidenceScore),
     )
-    .limit(limit * 4);
+    .limit(limit * 8);
 
   const perVerticalLimit = Math.max(2, Math.ceil(limit / 5));
   const verticalCounts = new Map<string, number>();
   const selected = candidates
+    .filter(isEligibleQueueCompany)
     .filter((candidate) => {
       const key = candidate.verticalId ?? "unclassified";
       const count = verticalCounts.get(key) ?? 0;
@@ -144,7 +194,13 @@ export async function listDailyLeadQueue(
       id: dailyLeadQueue.id,
       companyId: dailyLeadQueue.companyId,
       companyName: companies.name,
+      tradeName: companies.tradeName,
+      domain: companies.domain,
       verticalId: companies.verticalId,
+      vertical: verticals.name,
+      subsegment: companies.subsegment,
+      description: companies.description,
+      analysisMetadata: companies.analysisMetadata,
       rank: dailyLeadQueue.rank,
       status: dailyLeadQueue.status,
       opportunityScore: dailyLeadQueue.opportunityScore,
@@ -154,11 +210,19 @@ export async function listDailyLeadQueue(
     })
     .from(dailyLeadQueue)
     .innerJoin(companies, eq(companies.id, dailyLeadQueue.companyId))
-    .where(eq(dailyLeadQueue.queueDate, date))
+    .innerJoin(verticals, eq(verticals.id, companies.verticalId))
+    .where(and(eq(dailyLeadQueue.queueDate, date), eq(verticals.active, true)))
     .orderBy(dailyLeadQueue.rank);
-  return rows.map((row) => ({
-    ...row,
+  return rows.filter(isEligibleQueueCompany).map((row) => ({
+    id: row.id,
+    companyId: row.companyId,
+    companyName: row.companyName,
     verticalId: row.verticalId ?? undefined,
+    rank: row.rank,
+    status: row.status,
+    opportunityScore: row.opportunityScore,
+    confidenceScore: row.confidenceScore,
+    recommendedSolution: row.recommendedSolution,
     whyNow: row.whyNow ?? undefined,
   }));
 }

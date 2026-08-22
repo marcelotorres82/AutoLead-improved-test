@@ -20,7 +20,8 @@ REGRA CRÍTICA E INEGOCIÁVEL: CORE BUSINESS E SETORES ESTRITAMENTE PROIBIDOS
 4. OUTROS SETORES FORA DE ESCOPO:
    - PROIBIDO: Hospitais, laboratórios de medicina diagnóstica e análises clínicas (ex: Fleury, Dasa, Rede D'Or, Hapvida), indústrias farmacêuticas e redes de drogarias (exceto se for universidade/K-12).
    - PROIBIDO: Indústria pesada, siderurgia, mineração, petróleo, usinas sucroalcooleiras, frigoríficos e construção civil pesada (ex: Gerdau, Vale, Petrobras, Raízen, CSN, Usiminas, JBS, BRF, MRV).
-   - PROIBIDO: Operadoras de telefonia e provedores de acesso à internet banda larga residencial (ex: Claro, Vivo, TIM, Oi).
+   - PROIBIDO: Qualquer empresa de telecomunicações, conectividade, operadora, ISP, data center como serviço, provedor de nuvem ou serviços gerenciados de TI (ex: Claro, Vivo, TIM, Oi, Claranet).
+   - PROIBIDO: Empresas cujo produto principal seja tecnologia para terceiros, incluindo consultorias de TI/transformação digital, fábricas e engenharia de software, outsourcing de tecnologia e integradoras de sistemas (ex: Globant, Thoughtworks). Tecnologia usada internamente por uma empresa de uma vertical permitida NÃO a exclui.
 
 CLASSIFICAÇÃO OBRIGATÓRIA NAS 9 VERTICAIS
 - Registre detalhadamente a principal atividade-fim em coreBusiness.

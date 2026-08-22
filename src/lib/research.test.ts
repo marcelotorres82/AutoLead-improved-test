@@ -28,6 +28,12 @@ describe("cron", () => {
       "Workflow de vídeo e OVP OR Transmissão/broadcast OR OTT",
     );
   });
+  it("não pesquisa consultorias de TI, tecnologia ou telecom", () => {
+    const queries = buildSearchQueries(undefined, ["Business Services"]);
+    expect(queries.join(" ")).not.toContain("Consultoria e serviços de TI");
+    expect(queries[0]).toContain("-telecom");
+    expect(queries[0]).toContain('-"consultoria de TI"');
+  });
   it("intercala consultas e remove URLs canônicas repetidas", () => {
     const result = (title: string, url: string) => ({
       title,

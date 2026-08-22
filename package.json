@@ -17,6 +17,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/run-migrate.ts",
     "db:seed": "tsx scripts/run-seed.ts",
+    "db:disqualify-out-of-scope": "tsx scripts/disqualify-out-of-scope.ts",
     "auth:hash": "tsx scripts/hash-password.ts"
   },
   "dependencies": {

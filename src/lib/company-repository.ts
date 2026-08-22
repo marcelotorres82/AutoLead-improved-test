@@ -336,7 +336,10 @@ export async function persistAnalyzedCompanies(
   const db = getDb();
   const [inventory, verticalRows] = await Promise.all([
     listCompanyInventory(),
-    db.select({ id: verticals.id, name: verticals.name }).from(verticals),
+    db
+      .select({ id: verticals.id, name: verticals.name })
+      .from(verticals)
+      .where(eq(verticals.active, true)),
   ]);
   const known = inventory.flatMap((item) =>
     [item.name, item.tradeName, ...item.aliases]

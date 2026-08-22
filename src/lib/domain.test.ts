@@ -150,7 +150,7 @@ describe("Validação de Core Business e Exclusão de Setores", () => {
     expect(gerdau.forbidden).toBe(true);
   });
 
-  it("aprova empresas legítimas das 9 verticais", () => {
+  it("aprova varejo legítimo e rejeita consultorias de tecnologia", () => {
     const retail = isForbiddenSectorCompany({
       name: "Magalu Digital",
       tradeName: "Magalu",
@@ -164,6 +164,30 @@ describe("Validação de Core Business e Exclusão de Setores", () => {
       coreBusiness:
         "Desenvolvimento e consultoria especializada em engenharia de software e transformação digital",
     });
-    expect(itConsulting.forbidden).toBe(false);
+    expect(itConsulting.forbidden).toBe(true);
+  });
+
+  it("rejeita Globant, Claranet e Thoughtworks pelo core business", () => {
+    for (const company of [
+      {
+        name: "Globant Brasil",
+        coreBusiness:
+          "Consultoria de tecnologia focada em inovação, transformação digital e engenharia de software",
+      },
+      {
+        name: "Claranet Brasil",
+        coreBusiness:
+          "Provedora de serviços gerenciados de TI, conectividade e nuvem",
+      },
+      {
+        name: "Thoughtworks Brasil",
+        coreBusiness:
+          "Consultoria global de tecnologia e serviços de engenharia de software",
+      },
+    ]) {
+      expect(isForbiddenSectorCompany(company)).toMatchObject({
+        forbidden: true,
+      });
+    }
   });
 });

@@ -59,7 +59,8 @@ export function buildSearchQueries(
         : "";
 
     const baseVertical = `Brasil ${vertical}${subverticals ? ` (${subverticals})` : ""}`;
-    const negFilter = "-banco -fintech -pagamento -adquirente -maquininha";
+    const negFilter =
+      '-banco -fintech -pagamento -adquirente -maquininha -telecom -operadora -ISP -"consultoria de TI" -"serviços gerenciados de TI" -"empresa de tecnologia" -"software house"';
 
     // Tier 1: Crescimento recente
     tiers[0].push(

@@ -19,11 +19,7 @@ export const solutions = ["API Security", "WAAP", "Guardicore"] as const;
 export type Solution = (typeof solutions)[number];
 
 export const verticalTaxonomy = {
-  "Business Services": [
-    "Agências de publicidade e marketing",
-    "Consultoria e serviços de TI",
-    "Logística",
-  ],
+  "Business Services": ["Agências de publicidade e marketing", "Logística"],
   Education: [
     "Ensino básico/K-12",
     "Universidades",
@@ -505,9 +501,14 @@ export const forbiddenCoreBusinessRegexes: Array<{
       /(?:siderurg|sider[uú]rg|minera[cç][aã]o de min[eé]rio|extra[cç][aã]o de petr[oó]leo|distribui[cç][aã]o de combust[ií]ve|usina de a[cç][uú]car e etanol|sucroalcooleir|frigor[ií]fico|abate de bovinos|constru[cç][aã]o civil|incorporadora imobili[aá]ria|fabrica[cç][aã]o de motores el[eé]tricos)/i,
   },
   {
-    category: "Telecomunicações / Operadoras de Telefonia / ISPs Residenciais",
+    category: "Telecomunicações / Conectividade / Serviços Gerenciados de TI",
     regex:
-      /(?:operadora de telefonia m[oó]vel|servi[cç]o telef[oó]nico fixo|provedor de internet banda larga residencial)/i,
+      /(?:operadora de telefonia|telefonia m[oó]vel|servi[cç]o telef[oó]nico fixo|provedor de internet|banda larga|telecomunica[cç]|conectividade corporativa|servi[cç]os? gerenciados? de (?:ti|tecnologia|infraestrutura)|managed services provider|\bmsp\b|provedor(?:a)? de (?:servi[cç]os? de )?(?:nuvem|cloud)|cloud provider|data center as a service)/i,
+  },
+  {
+    category: "Tecnologia / Consultoria de TI / Desenvolvimento de Software",
+    regex:
+      /(?:consultoria[^,.;]{0,50}(?:\bti\b|tecnologia|transforma[cç][aã]o digital|engenharia de software)|consultoria tecnol[oó]gica|technology consulting|servi[cç]os? de tecnologia da informa[cç][aã]o|empresa de tecnologia|outsourcing de (?:ti|tecnologia)|terceiriza[cç][aã]o de (?:ti|tecnologia)|f[aá]brica de software|software house|engenharia de software (?:para|e servi[cç]os)|desenvolvimento (?:sob medida|customizado) de software|integradora de sistemas|integra[cç][aã]o de sistemas (?:para|corporativos)|provedor(?:a)? de solu[cç][oõ]es? de (?:ti|tecnologia)|digital engineering services)/i,
   },
 ];
 
